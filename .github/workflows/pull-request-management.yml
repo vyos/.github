@@ -4,6 +4,7 @@ name: Build Pull Request Package
 on:
   pull_request:
     branches:
+      - main
       - current
       - sagitta
       - equuleus

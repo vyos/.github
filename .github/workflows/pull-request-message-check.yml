@@ -4,6 +4,7 @@ name: Check pull request message format
 on:
   pull_request:
     branches:
+      - main
       - current
       - sagitta
       - equuleus
