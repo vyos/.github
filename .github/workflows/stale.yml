@@ -6,7 +6,6 @@ on:
 jobs:
   stale:
     runs-on: ubuntu-latest
-    if: github.repository == 'vyos/vyos-1x'
     steps:
       # Issue stale management
     - uses: actions/stale@v6
