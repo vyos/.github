@@ -1,0 +1,9 @@
+equuleus:
+  - any:
+    - base-branch: 'equuleus'
+current:
+  - any:
+    - base-branch: 'current'
+sagitta:
+  - any:
+    - base-branch: 'sagitta'
