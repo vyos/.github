@@ -4,7 +4,6 @@ name: Add pull request labels
 on:
   pull_request_target:
     branches:
-      - main
       - current
       - equuleus
       - sagitta
