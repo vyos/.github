@@ -3,7 +3,7 @@ on:
   workflow_call:
 
 jobs:
-  Conflict_Check:
+  pr-conflict-Check:
     name: 'Check PR status: conflicts and resolution'
     runs-on: ubuntu-latest
     steps:
