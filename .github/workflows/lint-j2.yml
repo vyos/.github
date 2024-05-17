@@ -2,11 +2,7 @@
 name: Build Pull Request Package
 
 on:
-  pull_request:
-    branches:
-      - current
-      - sagitta
-      - equuleus
+  workflow_call:
 
 jobs:
   j2lint:

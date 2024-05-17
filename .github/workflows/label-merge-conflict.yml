@@ -1,7 +1,6 @@
-name: "PR Conflicts checker"
+name: "Label merge conflicts"
 on:
-  pull_request_target:
-    types: [synchronize]
+  workflow_call:
 
 jobs:
   Conflict_Check:
