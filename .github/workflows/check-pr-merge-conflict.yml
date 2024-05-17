@@ -6,6 +6,9 @@ jobs:
   pr-conflict-Check:
     name: 'Check PR status: conflicts and resolution'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - name: check if PRs are dirty
         uses: eps1lon/actions-label-merge-conflict@v3
