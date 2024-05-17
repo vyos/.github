@@ -2,9 +2,6 @@ name: "PR Triage"
 on:
   workflow_call:
 
-permissions:
-  pull-requests: write
-
 jobs:
   # https://github.com/marketplace/actions/auto-author-assign
   assign-author:

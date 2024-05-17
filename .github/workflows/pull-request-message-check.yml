@@ -2,11 +2,7 @@
 name: Check pull request message format
 
 on:
-  pull_request:
-    branches:
-      - current
-      - sagitta
-      - equuleus
+  workflow_call:
 
 jobs:
   check-pr-title:
