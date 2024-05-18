@@ -22,4 +22,4 @@ jobs:
       - name: Analysing the code with pylint
         run: | 
           pylint_files=$(git ls-files *.py src/migration-scripts)
-          pylint --disable=all --enable=W0611 $(pylint_files)
+          pylint --disable=all --enable=W0611 $pylint_files
