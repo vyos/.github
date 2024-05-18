@@ -6,6 +6,9 @@ on:
 jobs:
   stale:
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
     steps:
       # Issue stale management
     - uses: actions/stale@v6

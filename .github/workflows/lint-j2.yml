@@ -8,6 +8,9 @@ jobs:
   j2lint:
     name: Validate j2 files
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
     steps:
       - uses: actions/checkout@v2
         timeout-minutes: 2
