@@ -1,6 +1,7 @@
-name: Mergifyio backport
+name: Label backport
 
-on: [issue_comment]
+on:
+  workflow_call:
 
 jobs:
   mergifyio_backport:

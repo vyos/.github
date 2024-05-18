@@ -1,10 +1,6 @@
 name: "PR Triage"
 on:
-  pull_request_target:
-    types: [opened, reopened, ready_for_review, locked]
-
-permissions:
-  pull-requests: write
+  workflow_call:
 
 jobs:
   # https://github.com/marketplace/actions/auto-author-assign

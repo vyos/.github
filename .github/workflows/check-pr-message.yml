@@ -1,0 +1,27 @@
+---
+name: Check pull request message format
+
+on:
+  workflow_call:
+
+jobs:
+  check-pr-title:
+    name: Check pull request title
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        timeout-minutes: 2
+  
+      - name: Checkout reusable actions repo
+        uses: actions/checkout@v3
+        with:
+          repository: vyos/.github
+          path: reusable-actions
+
+      - name: Install the requests library
+        run: pip3 install requests
+
+      - name: Check the PR title
+        timeout-minutes: 2
+        run: |
+          ./reusable-actions/scripts/check-pr-title-and-commit-messages.py '${{ github.event.pull_request.url }}'
