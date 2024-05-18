@@ -23,6 +23,5 @@ jobs:
 
       - name: Analysing the code with pylint
         run: |
-          cat src/op_mode/cgnat.py
           pylint_files=$(git ls-files *.py src/migration-scripts)
           pylint --disable=all --enable=W0611 $pylint_files
