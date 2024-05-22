@@ -6,10 +6,10 @@ VyOS is a fully open-source Linux-based OS for network devices. It focuses on en
 * A remote HTTP API and scripting APIs for shell and Python.
 
 Our business model is "pay for prebuilt binaries", plus technical support and custom development services.
-We are happy to issue free LTS image access subscriptions to [contributors](https://vyos.net/get/contributor-subscriptions/)
-and share images with individuals who support us through [Open Collective](https://opencollective.com/vyos).
 If you want to use VyOS in your company, consider [buying a subscription](https://vyos.io/subscriptions/)
 to get support and help us ensure sustainable funding for the project.
+
+We are also offer [free LTS image access to contributors](https://vyos.net/get/contributor-subscriptions/).
 
 If you want to contribute to VyOS:
 
