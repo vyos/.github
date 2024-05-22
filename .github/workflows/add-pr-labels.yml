@@ -12,4 +12,12 @@ jobs:
       contents: read
       pull-requests: write
     steps:
+      - name: Checkout reusable actions repo
+        uses: actions/checkout@v3
+        with:
+          repository: vyos/.github
+          path: reusable-actions
       - uses: actions/labeler@v5
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          configuration-path: ./reusable-actions/.github/labeler.yml
