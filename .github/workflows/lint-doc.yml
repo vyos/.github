@@ -1,0 +1,33 @@
+name: Doc Linting
+on:
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+
+    - name: Checkout reusable workflows repo
+      uses: actions/checkout@v3
+      with:
+        repository: vyos/.github
+        path: reusable-workflows
+
+    - name: Get File Changes
+      id: file_changes
+      uses: trilom/file-changes-action@v1.2.3
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.x'
+
+    - name: run doc linter
+      run: python ./reusable-workflows/.github/doc-linter.py '${{ steps.file_changes.outputs.files_modified }}'
+
+    env:
+      GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+    
+    
