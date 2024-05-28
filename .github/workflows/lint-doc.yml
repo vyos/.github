@@ -1,9 +1,9 @@
 name: Doc Linting
 on:
-  pull_request:
+  workflow_call:
 
 jobs:
-  lint:
+  doc-lint:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
