@@ -18,7 +18,7 @@ jobs:
 
     - name: Get File Changes
       id: file_changes
-      uses: trilom/file-changes-action@v1.2.3
+      uses: trilom/file-changes-action@v1.2.4
 
     - name: Set up Python
       uses: actions/setup-python@v2
