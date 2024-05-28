@@ -14,6 +14,7 @@ jobs:
       with:
         repository: vyos/.github
         path: reusable-workflows
+        ref: feature/T6349-reusable-workflows
 
     - name: Get File Changes
       id: file_changes
