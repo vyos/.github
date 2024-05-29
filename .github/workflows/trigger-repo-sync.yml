@@ -3,6 +3,16 @@ name: Trigger repo sync
 
 on:
   workflow_call:
+    secrets:
+      REMOTE_OWNER:
+        description: 'Remote repo owner'
+        required: true
+      REMOTE_REPO:
+        description: 'Remote repo name'
+        required: true
+      PAT:
+        description: 'Personal Access Token'
+        required: true
 
 jobs:
   trigger-repo-sync:
