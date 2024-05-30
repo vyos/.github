@@ -3,18 +3,15 @@ name: Trigger repo sync
 
 on:
   workflow_call:
-    inputs:
+    secrets:
       REMOTE_OWNER:
         description: 'Remote repo owner'
-        type: string
         required: true
       REMOTE_REPO:
         description: 'Remote repo name'
-        type: string
         required: true
       PAT:
         description: 'Personal Access Token'
-        type: string
         required: true
 
 jobs:
@@ -26,10 +23,10 @@ jobs:
       - name: Trigger sync workflow
         shell: bash
         run: |
-          echo "Triggering sync workflow for ${{ inputs.REMOTE_OWNER }}/${{ inputs.REMOTE_REPO }}"
-          echo "Triggering sync workflow with PAT ${{ inputs.PAT }}"
+          echo "Triggering sync workflow for ${{ secrets.REMOTE_OWNER }}/${{ secrets.REMOTE_REPO }}"
+          echo "Triggering sync workflow with PAT ${{ secrets.PAT }}"
           curl -X POST \
             -H "Accept: application/vnd.github.everest-preview+json" \
-            -H "Authorization: Bearer ${{ inputs.PAT }}" \
-            https://api.github.com/repos/${{ inputs.REMOTE_OWNER }}/${{ inputs.REMOTE_REPO }}/actions/workflows/vyos-repo-sync.yml/dispatches \
+            -H "Authorization: Bearer ${{ secrets.PAT }}" \
+            https://api.github.com/repos/${{ secrets.REMOTE_OWNER }}/${{ secrets.REMOTE_REPO }}/actions/workflows/vyos-repo-sync.yml/dispatches \
             -d '{"ref":"git-actions"}'
