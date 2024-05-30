@@ -24,7 +24,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v3
         with:
-          python-version: 3.8
+          python-version: 3.11
       
       - name: Install Pipenv
         run: |
@@ -35,7 +35,7 @@ jobs:
       - name: Run smoke test
         timeout-minutes: 10
         run: |
+          pipenv --py
           pipenv install --dev
           pipenv install -r ./reusable-workflows/.github/test-requirements.txt
-          pipenv uninstall pyreadline
           pipenv run make test
