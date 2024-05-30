@@ -20,7 +20,12 @@ jobs:
           repository: vyos/.github
           path: reusable-workflows
           ref: feature/T6349-reusable-workflows
-        
+
+      - name: Set up Python
+        uses: actions/setup-python@v3
+        with:
+          python-version: 3.11
+      
       - name: Install Pipenv
         run: |
           sudo apt-get update
