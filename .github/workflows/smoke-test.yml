@@ -1,0 +1,21 @@
+---
+name: Run smoke tests
+
+on:
+  workflow_call:
+
+jobs:
+  smote-test:
+    name: Run smoke tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        timeout-minutes: 2
+      - name: Run smoke tests
+        timeout-minutes: 10
+        run: |
+          pipenv install --dev
+          pipenv shell
+          make test
