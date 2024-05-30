@@ -37,4 +37,5 @@ jobs:
         run: |
           pipenv install --dev
           pipenv install -r ./reusable-workflows/.github/test-requirements.txt
+          pipenv uninstall pyreadline
           pipenv run make test
