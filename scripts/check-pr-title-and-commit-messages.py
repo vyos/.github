@@ -13,13 +13,13 @@ commit_regex = title_regex
 def check_pr_title(title):
     if not re.match(title_regex, title):
         print("PR title '{}' does not match the required format!".format(title))
-        print("Valid title examples:\n\nnatIPs: T99999: make IPsec secure\n\nT99999: make IPsec secure")
+        print("Valid title example: T99999: make IPsec secure")
         sys.exit(1)
 
 def check_commit_message(title):
     if not re.match(commit_regex, title):
-        print("Commit message '{}' does not match the required format!".format(title))
-        print("Valid comment message examples:\n\nnatIPs: T99999: make IPsec secure\n\nT99999: make IPsec secure")
+        print("Commit title '{}' does not match the required format!".format(title))
+        print("Valid title example: T99999: make IPsec secure")
         sys.exit(1)
 
 if __name__ == '__main__':
