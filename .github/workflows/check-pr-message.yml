@@ -25,26 +25,25 @@
           run: pip3 install requests
   
         - name: Check the PR title
-          id: check_pr_title
           timeout-minutes: 2
+          id: check_pr_title
           run: |
-            message=''
             output=$(./reusable-actions/scripts/check-pr-title-and-commit-messages.py '${{ github.event.pull_request.url }}' 2>&1 || true)
             if [ -n "$output" ]; then
               echo "$output"
-              message="❌ PR Title / Commit Title does not follow the required format. ${output//$'\n'/. }"  
+              echo "error_message=${output//$'\n'/. }" >> $GITHUB_ENV         
               exit 1
             else
-              message="👍 No issues in PR Title / Commit Title"
+              #echo "error_message=" >> $GITHUB_ENV
+              echo "error_message=No issues in PR Title / Commit Title" >> $GITHUB_ENV
             fi
-            echo "message=$message" >> $GITHUB_OUTPUT
           shell: bash
-  
+
         - name: Add PR comment
           if: always()
           uses: mshick/add-pr-comment@v2
           with:
             message: |-
-              ${{ steps.check_pr_title.outputs.message }}
+              ${{ env.error_message == 'No issues in PR Title / Commit Title' && '👍' || '❌' }}
+              ${{ env.error_message }}
             allow-repeats: false
-  
