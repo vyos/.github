@@ -43,7 +43,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: '11.x' # Use '3.x' for the latest released version if Python 11 is not available
+        python-version: '3.11' # Use '3.x' for the latest released version if Python 11 is not available
 
     # Initializes the CodeQL tools for scanning.
     - name: Initialize CodeQL
