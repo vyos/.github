@@ -41,7 +41,7 @@ jobs:
 
     # Set up Python 11 (or the latest available version)
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '11.x' # Use '3.x' for the latest released version if Python 11 is not available
 
