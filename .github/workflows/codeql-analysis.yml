@@ -39,11 +39,11 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-    # Set up Python 11 (or the latest available version)
+    # Set up Python 11
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.11' # Use '3.x' for the latest released version if Python 11 is not available
+        python-version: '3.11'
 
     # Initializes the CodeQL tools for scanning.
     - name: Initialize CodeQL
