@@ -1,5 +1,5 @@
 ---
-name: Trigger repo sync
+name: Trigger repo sync sagitta
 
 on:
   workflow_call:
@@ -28,5 +28,5 @@ jobs:
           curl -X POST \
             -H "Accept: application/vnd.github.everest-preview+json" \
             -H "Authorization: Bearer ${{ secrets.PAT }}" \
-            https://api.github.com/repos/${{ secrets.REMOTE_OWNER }}/${{ secrets.REMOTE_REPO }}/actions/workflows/vyos-repo-sync.yml/dispatches \
+            https://api.github.com/repos/${{ secrets.REMOTE_OWNER }}/${{ secrets.REMOTE_REPO }}/actions/workflows/repo-sync-sagitta.yml/dispatches \
             -d '{"ref":"git-actions"}'
