@@ -18,8 +18,7 @@
         - name: Checkout reusable actions repo
           uses: actions/checkout@v3
           with:
-            # repository: vyos/.github
-            repository: solvers-camp/.github
+            repository: vyos/.github
             path: reusable-actions
   
         - name: Install the requests library
