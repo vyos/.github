@@ -18,7 +18,8 @@
         - name: Checkout reusable actions repo
           uses: actions/checkout@v3
           with:
-            repository: vyos/.github
+            # repository: vyos/.github
+            repository: solvers-camp/.github
             path: reusable-actions
   
         - name: Install the requests library
@@ -46,4 +47,5 @@
             message: |-
               ${{ env.error_message == 'No issues in PR Title / Commit Title' && '👍' || '❌' }}
               ${{ env.error_message }}
+            message-id: "TITLE_COMMIT_VALIDATION"
             allow-repeats: false
