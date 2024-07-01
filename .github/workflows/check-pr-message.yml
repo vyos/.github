@@ -46,4 +46,5 @@
             message: |-
               ${{ env.error_message == 'No issues in PR Title / Commit Title' && '👍' || '❌' }}
               ${{ env.error_message }}
+            message-id: "TITLE_COMMIT_VALIDATION"
             allow-repeats: false
