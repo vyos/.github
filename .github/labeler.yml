@@ -4,6 +4,9 @@ equuleus:
 current:
   - any:
     - base-branch: 'current'
+circinus:
+  - any:
+    - base-branch: 'circinus'
 sagitta:
   - any:
     - base-branch: 'sagitta'
