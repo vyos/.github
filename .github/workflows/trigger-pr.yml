@@ -1,0 +1,36 @@
+name: Trigger PR
+on:
+  workflow_call:
+    secrets:
+      REMOTE_OWNER:
+        description: 'Remote repo owner'
+        required: true
+      REMOTE_REPO:
+        description: 'Remote repo name'
+        required: true
+      PAT:
+        description: 'Personal Access Token'
+        required: true
+    inputs:
+      source_branch:
+        description: 'PR source branch'
+        type: string
+        required: true
+      target_branch:
+        description: 'PR target branch'
+        type: string
+        required: true
+        
+jobs:
+  trigger-pr:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger PR
+        shell: bash
+        run: |
+          curl -X POST \
+            -H "Accept: application/vnd.github.everest-preview+json" \
+            -H "Authorization: Bearer ${{ secrets.PAT }}" \
+            https://api.github.com/repos/${{ secrets.REMOTE_OWNER }}/${{ secrets.REMOTE_REPO }}/actions/workflows/create-pr.yml/dispatches \
+            -d '{"ref": "git-actions", "inputs":{"pr_number":"${{ github.event.pull_request.number }}", "pr_source_branch": "${{ inputs.source_branch }}", "pr_target_branch": "${{ inputs.target_branch }}", "pr_message":"${{ github.event.pull_request.title }}", "pr_source_repo":"${{ github.repository }}" }}'
