@@ -9,6 +9,11 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v3
 
+    - name: Bullfrog Secure Runner
+      uses: bullfrogsec/bullfrog@v0
+      with:
+        egress-policy: audit
+
     - name: Checkout reusable workflows repo
       uses: actions/checkout@v3
       with:

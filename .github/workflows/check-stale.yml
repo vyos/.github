@@ -10,6 +10,11 @@ jobs:
       pull-requests: write
       contents: read
     steps:
+    - name: Bullfrog Secure Runner
+      uses: bullfrogsec/bullfrog@v0
+      with:
+        egress-policy: audit
+
       # Issue stale management
     - uses: actions/stale@v6
       with:

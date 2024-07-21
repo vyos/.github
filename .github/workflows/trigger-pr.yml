@@ -26,6 +26,11 @@ jobs:
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     steps:
+      - name: Bullfrog Secure Runner
+        uses: bullfrogsec/bullfrog@v0
+        with:
+          egress-policy: audit
+
       - name: Trigger PR
         shell: bash
         run: |

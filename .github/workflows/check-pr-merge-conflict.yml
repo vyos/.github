@@ -10,6 +10,11 @@ jobs:
       contents: read
       pull-requests: write
     steps:
+      - name: Bullfrog Secure Runner
+        uses: bullfrogsec/bullfrog@v0
+        with:
+          egress-policy: audit
+
       - name: check if PRs are dirty
         uses: eps1lon/actions-label-merge-conflict@v3
         with:

@@ -12,6 +12,12 @@ jobs:
       pull-requests: write
       contents: read
     steps:
+      
+      - name: Bullfrog Secure Runner
+        uses: bullfrogsec/bullfrog@v0
+        with:
+          egress-policy: audit
+
       - uses: actions/checkout@v2
         timeout-minutes: 2
       - name: Setup J2Lint
