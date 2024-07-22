@@ -39,6 +39,11 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
+    - name: Bullfrog Secure Runner
+      uses: bullfrogsec/bullfrog@v0
+      with:
+        egress-policy: audit
+
     # Set up Python 11
     - name: Set up Python
       uses: actions/setup-python@v5

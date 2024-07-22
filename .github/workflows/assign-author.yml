@@ -10,6 +10,11 @@ jobs:
       pull-requests: write
       contents: read
     steps:
+      - name: Bullfrog Secure Runner
+        uses: bullfrogsec/bullfrog@v0
+        with:
+          egress-policy: audit
+
       - name: "Assign Author to PR"
         uses: toshimaru/auto-author-assign@v1.6.2
         with:
