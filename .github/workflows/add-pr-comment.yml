@@ -1,0 +1,17 @@
+name: Add PR comment 
+on:
+  workflow_call:
+jobs:
+  add-pr-comment:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+
+      - name: Add PR comment
+        uses: mshick/add-pr-comment@v2
+        with:
+          message: |-
+            'Test Message'
+          allow-repeats: false
