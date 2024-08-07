@@ -1,6 +1,8 @@
 name: Add PR comment 
 on:
   workflow_call:
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Needed for PR comments
 jobs:
   add-pr-comment:
     runs-on: ubuntu-latest
