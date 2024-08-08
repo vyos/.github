@@ -7,6 +7,7 @@ jobs:
     permissions:
       pull-requests: write
       contents: read
+      actions: read
     steps:
 
       - name: Checkout pull request head
@@ -22,13 +23,20 @@ jobs:
             src:
               - 'src/**'
 
-      - name: Get current workflow URL
+      # - name: Get current workflow URL
+      #   run: |
+      #     REPO_URL="https://github.com/${{ github.repository }}"
+      #     RUN_ID="${{ github.run_id }}"
+      #     WORKFLOW_URL="${REPO_URL}/actions/runs/${RUN_ID}"
+      #     echo "Current Workflow URL: ${WORKFLOW_URL}"
+      #     echo "WORKFLOW_URL=${WORKFLOW_URL}" >> $GITHUB_ENV
+
+      - name: Get Job and Run URL
         run: |
-          REPO_URL="https://github.com/${{ github.repository }}"
-          RUN_ID="${{ github.run_id }}"
-          WORKFLOW_URL="${REPO_URL}/actions/runs/${RUN_ID}"
-          echo "Current Workflow URL: ${WORKFLOW_URL}"
-          echo "WORKFLOW_URL=${WORKFLOW_URL}" >> $GITHUB_ENV
+          GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          GITHUB_JOB_URL="${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}/checks?check_suite_id=${{ github.run_id }}"
+          echo "GITHUB_RUN_URL=$GITHUB_RUN_URL" >> $GITHUB_ENV
+          echo "GITHUB_JOB_URL=$GITHUB_JOB_URL" >> $GITHUB_ENV
 
       - name: Set up Python
         if: steps.py-changes.outputs.src == 'true'
@@ -46,16 +54,13 @@ jobs:
         if: steps.py-changes.outputs.src == 'true'
         run: | 
           pylint_files=$(git ls-files *.py src/migration-scripts)
-          set +e
           output=$(pylint --disable=all --enable=W0611 $pylint_files)
           exit_code=$?
-          echo $output
+          echo "$output"
           if [[ $exit_code -eq 0 ]]; then
-            message=':white_check_mark: No issues in *unused-imports* check'
-            echo "WORKFLOW_MESSAGE=${message}" >> $GITHUB_ENV
+            echo "WORKFLOW_MESSAGE=':white_check_mark: No issues in *unused-imports* check'" >> $GITHUB_ENV
           else
-            message=":x: Issues found in *unused-imports* check. Please refer the [workflow]($WORKFLOW_URL) run"
-            echo "WORKFLOW_MESSAGE=${message}" >> $GITHUB_ENV
+            echo "WORKFLOW_MESSAGE=':x: Issues found in *unused-imports* check. Please refer the [workflow run]($WORKFLOW_JOB_URL)'" >> $GITHUB_ENV
             exit 1
           fi
 
