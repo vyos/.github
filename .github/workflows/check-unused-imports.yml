@@ -53,8 +53,10 @@ jobs:
         if: steps.py-changes.outputs.src == 'true'
         run: | 
           pylint_files=$(git ls-files *.py src/migration-scripts)
+          set +e
           output=$(pylint --disable=all --enable=W0611 $pylint_files)
           exit_code=$?
+          set -e
           echo "$output"
           if [[ $exit_code -eq 0 ]]; then
             echo "WORKFLOW_MESSAGE=':white_check_mark: No issues in *unused-imports* check'" >> $GITHUB_ENV
