@@ -47,20 +47,20 @@ jobs:
         run: | 
           pylint_files=$(git ls-files *.py src/migration-scripts)
           set +e
-          output=$(pylint --disable=all --enable=W0611 $pylint_files 2>&1)
+          output=$(pylint --disable=all --enable=W0611 $pylint_files)
           exit_code=$?
           echo $output
           if [[ $exit_code -eq 0 ]]; then
-            message='No issues in unused-imports'
+            message=':white_check_mark: No issues in *unused-imports* check'
             echo "WORKFLOW_MESSAGE=${message}" >> $GITHUB_ENV
           else
-            message="Issues found in unused-imports. Please refer $WORKFLOW_URL"
+            message=":x: Issues found in *unused-imports* check. Please refer the [workflow]($WORKFLOW_URL) run"
             echo "WORKFLOW_MESSAGE=${message}" >> $GITHUB_ENV
             exit 1
           fi
 
       - name: Add PR comment
-        if: always() && steps.py-changes.outputs.src == 'true'
+        if: always()
         uses: mshick/add-pr-comment@v2
         with:
           message: |-
