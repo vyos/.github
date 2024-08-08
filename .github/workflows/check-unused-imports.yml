@@ -7,7 +7,6 @@ jobs:
     permissions:
       pull-requests: write
       contents: read
-      actions: read
     steps:
 
       - name: Checkout pull request head
