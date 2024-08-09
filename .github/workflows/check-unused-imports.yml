@@ -43,12 +43,12 @@ jobs:
           exit_code=$?
           set -e
           echo "$output"
-          message=":white_check_mark: No issues found in *unused-imports* check"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          message=":white_check_mark: No issues found in *unused-imports* check."
           if [[ $exit_code -ne 0 ]]; then
-            run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-            message=":x: Issues found in *unused-imports* check. Please refer the [workflow run]($run_url)"
+            message=":x: Issues found in *unused-imports* check. "
           fi
-          echo "WORKFLOW_MESSAGE=$message" >> $GITHUB_ENV
+          echo "WORKFLOW_MESSAGE=${message}. Please refer the [workflow run]($run_url)" >> $GITHUB_ENV
           exit $exit_code
 
       - name: Add PR comment
