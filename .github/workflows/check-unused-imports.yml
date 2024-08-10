@@ -39,33 +39,23 @@ jobs:
         run: | 
           pylint_files=$(git ls-files *.py src/migration-scripts)
           set +e
-          pylint --disable=all --enable=W0611 $pylint_files
-          
-      # - name: Analysing the code with pylint
-      #   if: steps.py-changes.outputs.src == 'true'
-      #   run: | 
-      #     pylint_files=$(git ls-files *.py src/migration-scripts)
-      #     set +e
-      #     output=$(pylint --disable=all --enable=W0611 --output-format=json $pylint_files 2>&1)
-      #     exit_code=$?
-      #     set -e
-      #     if [[ $exit_code -eq 0 ]]; then
-      #       echo "error_message=No issues in unused-imports" >> $GITHUB_ENV
-      #       echo "No issues in unused-imports"
-      #     else
-      #       formatted_output=$(echo "$output" | jq -r '.[] | "\(.type): \(.message) in \(.path):\(.line)"')
-      #       echo "$formatted_output"
-      #       formatted_env_output=$(echo "$formatted_output" | tr '\n' '. ')
-      #       echo "error_message=${formatted_env_output}" >> $GITHUB_ENV
-      #       exit 1
-      #     fi
-           
-      # - name: Add PR comment
-      #   if: always() && steps.py-changes.outputs.src == 'true'
-      #   uses: mshick/add-pr-comment@v2
-      #   with:
-      #     message: |-
-      #       ${{ env.error_message == 'No issues in unused-imports' && '👍' || '❌' }}
-      #       ${{ env.error_message }}
-      #     message-id: "UNUSED_IMPORTS_VALIDATION"
-      #     allow-repeats: false
+          output=$(pylint --disable=all --enable=W0611 $pylint_files)
+          exit_code=$?
+          set -e
+          echo "$output"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          message=":white_check_mark: No issues found in *unused-imports* check."
+          if [[ $exit_code -ne 0 ]]; then
+            message=":x: Issues found in *unused-imports* check. "
+          fi
+          echo "WORKFLOW_MESSAGE=${message}. Please refer the [workflow run]($run_url)" >> $GITHUB_ENV
+          exit $exit_code
+
+      - name: Add PR comment
+        if: ${{ always() && env.WORKFLOW_MESSAGE != '' }}
+        uses: mshick/add-pr-comment@v2
+        with:
+          message: |-
+            ${{ env.WORKFLOW_MESSAGE }}
+          message-id: "UNUSED_IMPORTS_VALIDATION"
+          allow-repeats: false
