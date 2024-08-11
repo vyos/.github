@@ -38,4 +38,4 @@ jobs:
             -H "Accept: application/vnd.github.everest-preview+json" \
             -H "Authorization: Bearer ${{ secrets.PAT }}" \
             https://api.github.com/repos/${{ secrets.REMOTE_OWNER }}/${{ secrets.REMOTE_REPO }}/actions/workflows/create-pr.yml/dispatches \
-            -d '{"ref": "git-actions", "inputs":{"pr_number":"${{ github.event.pull_request.number }}", "pr_source_branch": "${{ inputs.source_branch }}", "pr_target_branch": "${{ inputs.target_branch }}", "pr_message":"${{ github.event.pull_request.title }}", "pr_source_repo":"${{ github.repository }}" }}'
+            -d '{"ref": "git-actions", "inputs":{"pr_number":"${{ github.event.pull_request.number }}", "pr_message":"${{ github.event.pull_request.title }}"}}'
