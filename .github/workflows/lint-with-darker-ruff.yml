@@ -8,7 +8,7 @@ env:
   base_ref: ${{ github.event.pull_request.base.ref }}
 
 jobs:
-  darker-ruff-lint:
+  darker-lint:
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
@@ -31,4 +31,4 @@ jobs:
 
       - name: Analyze Code
         run: |
-          darker -r ${base_ref}... --check --diff --lint "ruff check" --isort --color ./src
+          darker -r ${base_ref} --check --diff --lint "ruff check" --isort --color ./src
