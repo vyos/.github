@@ -1,0 +1,34 @@
+---
+name: Darker-Ruff Lint
+
+on:
+  workflow_call:
+
+env:
+  base_ref: ${{ github.event.pull_request.base.ref }}
+
+jobs:
+  darker-lint:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - uses: actions/setup-python@v5
+
+      - name: darker ruff install
+        run: |
+          pip install git+https://github.com/akaihola/darker.git@master ruff>=0.0.292
+
+      - name: Fetch base branch
+        run: |
+          git fetch origin ${base_ref}:${base_ref}
+
+      - name: Lint Code
+        run: |
+          darker -r ${base_ref} --check --diff --lint "ruff check" --color .
