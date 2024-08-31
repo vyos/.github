@@ -11,6 +11,13 @@ jobs:
       pull-requests: write
       contents: read
     steps:
+      - name: Checkout reusable actions repo
+        uses: actions/checkout@v3
+        with:
+          repository: vyos/.github
+          path: reusable-actions
+          ref: current
+
       - name: Checkout head
         uses: actions/checkout@v4
         with:
@@ -18,15 +25,24 @@ jobs:
           fetch-tags: true
           ref: ${{ github.event.pull_request.head.ref }}
           repository: ${{ github.event.pull_request.head.repo.full_name }}
+          path: repo
 
       - name: Fetch base
         run: |
+          cd repo
           git fetch https://github.com/${{ github.event.pull_request.base.repo.full_name }} ${{ github.event.pull_request.base.ref }}:refs/remotes/origin/base
 
-      - name: darker install
+      - name: Setup python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11' 
+
+      - name: Install darker ruff 
         run: |
           pip install git+https://github.com/akaihola/darker.git@master ruff>=0.0.292
 
       - name: Analyze Code
         run: |
+          cd repo
+          cp ../reusable-actions/.github/ruff.toml .
           darker -r origin/base --check --diff --lint "ruff check" --color .
