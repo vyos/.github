@@ -1,0 +1,41 @@
+---
+name: Ruff Lint
+
+on:
+  workflow_call:
+
+jobs:
+  ruff-lint:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - name: Checkout head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+
+      - name: Setup python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11' 
+
+      - name: Fetch base ruff config
+        run: |
+          git fetch https://github.com/${{ github.event.pull_request.base.repo.full_name }} ${{ github.event.pull_request.base.ref }}:refs/remotes/origin/base
+          if git ls-tree -r origin/base --name-only | grep -q '^ruff.toml$'; then
+            git checkout origin/base -- ruff.toml
+            echo "Using ruff.toml from base repo"
+            cat ruff.toml
+          else
+            echo "No ruff.toml found in base repo"
+          fi
+
+      - name: Lint
+        uses: chartboost/ruff-action@491342200cdd1cf4d5132a30ddc546b3b5bc531b
+        with:
+          args: check
+          changed-files: 'true'
