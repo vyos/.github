@@ -16,12 +16,7 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.ref }}
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'     
+          repository: ${{ github.event.pull_request.head.repo.full_name }}  
 
       - name: Ruff Check
         uses: chartboost/ruff-action@491342200cdd1cf4d5132a30ddc546b3b5bc531b
