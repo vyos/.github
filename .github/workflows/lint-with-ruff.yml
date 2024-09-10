@@ -1,0 +1,32 @@
+---
+name: Ruff Lint
+
+on:
+  workflow_call:
+
+jobs:
+  ruff-lint:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - name: Checkout Head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}  
+
+      - name: Ruff Check
+        uses: chartboost/ruff-action@491342200cdd1cf4d5132a30ddc546b3b5bc531b
+        with:
+          args: check
+          changed-files: 'true'
+
+      - name: Ruff Format
+        uses: chartboost/ruff-action@491342200cdd1cf4d5132a30ddc546b3b5bc531b
+        if: always()
+        with:
+          args: format --diff
+          changed-files: 'true'
