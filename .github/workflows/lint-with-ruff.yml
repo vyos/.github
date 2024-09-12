@@ -16,17 +16,25 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.ref }}
-          repository: ${{ github.event.pull_request.head.repo.full_name }}  
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+
+      - name: Get changed py files
+        id: changed-py-files
+        uses: tj-actions/changed-files@v44
+        with:
+          files: |
+             **.py
 
       - name: Ruff Check
+        if: steps.changed-py-files.outputs.any_changed == 'true'
         uses: chartboost/ruff-action@491342200cdd1cf4d5132a30ddc546b3b5bc531b
         with:
           args: check
           changed-files: 'true'
 
       - name: Ruff Format
+        if: always() && steps.changed-py-files.outputs.any_changed == 'true'
         uses: chartboost/ruff-action@491342200cdd1cf4d5132a30ddc546b3b5bc531b
-        if: always()
         with:
           args: format --diff
           changed-files: 'true'
