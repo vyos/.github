@@ -18,24 +18,26 @@ jobs:
           ref: ${{ github.event.pull_request.head.ref }}
           repository: ${{ github.event.pull_request.head.repo.full_name }}
 
-      - name: Get changed py files
-        id: changed-py-files
-        uses: tj-actions/changed-files@v44
+      - name: Filter changed Python files
+        id: py-filter
+        uses: dorny/paths-filter@v3
         with:
-          fetch_depth: 0
-          files: |
-             **.py
+          list-files: json
+          filters: |
+            python:
+              - '**/*.py'
 
-      - name: Ruff Check
-        if: steps.changed-py-files.outputs.any_changed == 'true'
-        uses: chartboost/ruff-action@491342200cdd1cf4d5132a30ddc546b3b5bc531b
-        with:
-          args: check
-          changed-files: 'true'
+      - name: Install ruff 
+        run: |
+          pip install ruff==0.6.4
 
-      - name: Ruff Format
-        if: always() && steps.changed-py-files.outputs.any_changed == 'true'
-        uses: chartboost/ruff-action@491342200cdd1cf4d5132a30ddc546b3b5bc531b
-        with:
-          args: format --diff
-          changed-files: 'true'
+      - name: Run ruff on changed files
+        run: |
+          CHANGED_FILES=$(echo '${{ steps.py-filter.outputs.python_files }}' | jq -r 'join(" ")')
+          echo "CHANGED_FILES=$CHANGED_FILES"
+          if [ -n "$CHANGED_FILES" ]; then
+            ruff check $CHANGED_FILES
+            ruff format --diff $CHANGED_FILES
+          else
+            echo "No Python files changed."
+          fi
