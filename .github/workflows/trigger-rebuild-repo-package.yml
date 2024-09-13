@@ -2,33 +2,45 @@ name: Workflow to trigger a package build
 
 on:
   workflow_call:
-        inputs:
-            branch:
-                required: true
-                type: string
-                default: current
-            package_name:
-                required: true
-                type: string
-            REF:
-                required: true
-                type: string
-                default: main
-        secrets:
-            REMOTE_OWNER:
-                required: true
-            REMOTE_REUSE_REPO:
-                required: true
-            GPG_KEY_ID:
-                required: true
-            PAT:
-                required: true
+    inputs:
+      branch:
+        description: 'PR target branch'
+        required: true
+        type: string
+        default: current
+      package_name:
+        description: 'PR package name'
+        required: true
+        type: string
+      REF:
+        required: true
+        type: string
+        default: main
+    secrets:
+      REMOTE_OWNER:
+        description: 'Remote repo owner'
+        required: true
+      REMOTE_REUSE_REPO:
+        description: 'Remote reusable repo name'
+        required: true
+      GPG_KEY_ID:
+        description: 'DEB repo GPG key ID'
+        required: true
+      PAT:
+        description: 'Personal Access Token'
+        required: true
 
 jobs:
   trigger_package_build:
+    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
 
     steps:
+      - name: Bullfrog Secure Runner
+        uses: bullfrogsec/bullfrog@v0
+        with:
+          egress-policy: audit
+
       - name: Trigger rebuild for ${{ inputs.package_name }}
         run: |
           curl -L \
