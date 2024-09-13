@@ -27,17 +27,24 @@ jobs:
             python:
               - '**/*.py'
 
+      - name: Get py changed files
+        if: steps.py-filter.outputs.python == 'true'
+        id: py-changed-files
+        run: | 
+          files=$(echo '${{ steps.py-filter.outputs.python_files }}' | jq -r 'join(" ")')
+          echo "files=${files}" >> $GITHUB_OUTPUT
+
       - name: Install ruff 
+        if: steps.py-filter.outputs.python == 'true'
         run: |
           pip install ruff==0.6.4
 
-      - name: Run ruff on changed files
+      - name: Run ruff check on changed files
+        if: steps.py-filter.outputs.python == 'true'
         run: |
-          CHANGED_FILES=$(echo '${{ steps.py-filter.outputs.python_files }}' | jq -r 'join(" ")')
-          echo "CHANGED_FILES=$CHANGED_FILES"
-          if [ -n "$CHANGED_FILES" ]; then
-            ruff check $CHANGED_FILES
-            ruff format --diff $CHANGED_FILES
-          else
-            echo "No Python files changed."
-          fi
+          ruff check ${{ steps.py-changed-files.outputs.files }}
+
+      - name: Run ruff format on changed files
+        if: always() && steps.py-filter.outputs.python == 'true'
+        run: |
+          ruff format --diff ${{ steps.py-changed-files.outputs.files }}
