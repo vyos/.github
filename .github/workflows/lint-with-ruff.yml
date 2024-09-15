@@ -22,17 +22,10 @@ jobs:
         id: py-filter
         uses: dorny/paths-filter@v3
         with:
-          list-files: json
+          list-files: shell
           filters: |
             python:
               - '**/*.py'
-
-      - name: Get py changed files
-        if: steps.py-filter.outputs.python == 'true'
-        id: py-changed-files
-        run: | 
-          files=$(echo '${{ steps.py-filter.outputs.python_files }}' | jq -r 'join(" ")')
-          echo "files=${files}" >> $GITHUB_OUTPUT
 
       - name: Install ruff 
         if: steps.py-filter.outputs.python == 'true'
@@ -42,9 +35,9 @@ jobs:
       - name: Run ruff check on changed files
         if: steps.py-filter.outputs.python == 'true'
         run: |
-          ruff check ${{ steps.py-changed-files.outputs.files }}
+          ruff check ${{ steps.py-filter.outputs.python_files }}
 
       - name: Run ruff format on changed files
         if: always() && steps.py-filter.outputs.python == 'true'
         run: |
-          ruff format --diff ${{ steps.py-changed-files.outputs.files }}
+          ruff format --diff ${{ steps.py-filter.outputs.python_files }}
