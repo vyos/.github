@@ -1,0 +1,92 @@
+name: Build Image (VYOS)
+
+on:
+  workflow_call:
+    inputs:
+      branch:
+        required: true
+        type: string
+        default: current
+      arch:
+        required: false
+        type: string
+        default: amd64
+    secrets:
+      token:
+        required: true
+
+env:
+  BUILD_BY: autobuild@vyos.net
+  DEBIAN_MIRROR: http://deb.debian.org/debian/
+  VYOS_MIRROR: https://packages.vyos.net/repositories/${{ inputs.branch }}/
+  VYOS_MIRROR_APT_KEY: https://packages.vyos.net/vyos_dev_public.key
+  LOCAL_GPG_KEY_PATH: /etc/apt/trusted.gpg.d/vyos_dev.gpg
+
+jobs:
+  build-iso:
+    runs-on: ubuntu-latest
+    container:
+      image: vyos/vyos-build:${{ inputs.branch }}
+      options: --workdir /vyos --privileged
+
+    steps:
+    - name: Checkout source code
+      uses: actions/checkout@v4
+      with:
+        repository: vyos/vyos-build  # Use public repo
+        ref: ${{ inputs.branch }}
+
+    - name: Mark directory as safe
+      run: |
+        set -eux
+        git config --global --add safe.directory '*'
+
+    - name: Set release version variable
+      run: |
+        if [ ${{ inputs.branch }} == 'sagitta' ]; then
+            echo "RELEASE_VERSION=1.4" >> $GITHUB_ENV
+        elif [ ${{ inputs.branch }} == 'equuleus' ]; then
+            echo "RELEASE_VERSION=1.3" >> $GITHUB_ENV
+        else
+            echo "RELEASE_VERSION=1.5" >> $GITHUB_ENV
+        fi
+
+    - name: Setup env variables
+      run: |
+        set -eux
+        echo "BUILD_VERSION=${{ env.RELEASE_VERSION }}-${{ inputs.branch }}-$(date -u +%Y%m%d%H%M)" >> $GITHUB_ENV
+
+    - name: Get apt key
+      run: |
+        set -eux
+        wget ${{ env.VYOS_MIRROR_APT_KEY }}
+        mv vyos_dev_public.key ${{ env.LOCAL_GPG_KEY_PATH }}
+
+    - name: Build ISO
+      run: |
+        set -eux
+        git remote -v
+        ./build-vyos-image \
+          --build-by ${{ env.BUILD_BY }} \
+          --build-type release \
+          --version $BUILD_VERSION \
+          --vyos-mirror ${{ env.VYOS_MIRROR }} \
+          --custom-apt-key ${{ env.LOCAL_GPG_KEY_PATH }} \
+          generic
+        ls -la build/
+
+    - name: "Building: copy a generic ISO image"
+      if: ${{ !inputs.FAKE_BUILDING_PROCESS }}
+      id: copy_iso
+      run: |
+        set -eux
+        cp ./build/live-image-${{ inputs.arch }}.hybrid.iso ./vyos-$BUILD_VERSION-${{ inputs.arch }}.iso
+
+    - name: "Uploading artifacts: ISO image to GitHub"
+      id: upload_iso_artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: vyos-${{ env.BUILD_VERSION }}-${{ inputs.arch }}.iso
+        path: ./vyos-${{ env.BUILD_VERSION }}-${{ inputs.arch }}.iso
+        retention-days: 10
+        if-no-files-found: error
