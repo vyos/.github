@@ -3,6 +3,18 @@ name: Build Image (VYOS)
 on:
   workflow_call:
     inputs:
+      debian_mirror:
+        required: true
+        type: string
+        default: 'http://deb.debian.org/debian/'
+      debian_security_mirror:
+        required: true
+        type: string
+        default: ''
+      vyos_mirror:
+        required: true
+        type: string
+        default: 'https://packages.vyos.net/repositories/'
       branch:
         required: true
         type: string
@@ -11,16 +23,30 @@ on:
         required: false
         type: string
         default: amd64
+      build_by:
+        required: true
+        type: string
+        default: 'autobuild@vyos.net'
+      release_version:
+        required: true
+        type: string
+        default: ''
+      release_flavor:
+        required: true
+        type: string
+        default: 'generic'
     secrets:
       token:
         required: true
 
 env:
-  BUILD_BY: autobuild@vyos.net
-  DEBIAN_MIRROR: http://deb.debian.org/debian/
-  VYOS_MIRROR: https://packages.vyos.net/repositories/${{ inputs.branch }}/
+  BUILD_BY: ${{ inputs.build_by }}
+  DEBIAN_MIRROR: ${{ inputs.debian_mirror }}
+  VYOS_MIRROR: ${{ inputs.vyos_mirror }}/${{ inputs.branch }}/
   VYOS_MIRROR_APT_KEY: https://packages.vyos.net/vyos_dev_public.key
   LOCAL_GPG_KEY_PATH: /etc/apt/trusted.gpg.d/vyos_dev.gpg
+  RELEASE_FLAVOR: ${{ inputs.release_flavor }}
+  RELEASE_VERSION: ${{ inputs.release_version }}
 
 jobs:
   build-iso:
@@ -40,16 +66,6 @@ jobs:
       run: |
         set -eux
         git config --global --add safe.directory '*'
-
-    - name: Set release version variable
-      run: |
-        if [ ${{ inputs.branch }} == 'sagitta' ]; then
-            echo "RELEASE_VERSION=1.4" >> $GITHUB_ENV
-        elif [ ${{ inputs.branch }} == 'equuleus' ]; then
-            echo "RELEASE_VERSION=1.3" >> $GITHUB_ENV
-        else
-            echo "RELEASE_VERSION=1.5" >> $GITHUB_ENV
-        fi
 
     - name: Setup env variables
       run: |
@@ -72,10 +88,10 @@ jobs:
           --version $BUILD_VERSION \
           --vyos-mirror ${{ env.VYOS_MIRROR }} \
           --custom-apt-key ${{ env.LOCAL_GPG_KEY_PATH }} \
-          generic
+          ${{ env.RELEASE_FLAVOR }}
         ls -la build/
 
-    - name: "Building: copy a generic ISO image"
+    - name: "Building: copy a ${{ env.RELEASE_FLAVOR }} ISO image"
       if: ${{ !inputs.FAKE_BUILDING_PROCESS }}
       id: copy_iso
       run: |
