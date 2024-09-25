@@ -4,19 +4,19 @@ on:
   workflow_call:
     inputs:
       debian_mirror:
-        required: true
+        required: false
         type: string
         default: 'http://deb.debian.org/debian/'
       debian_security_mirror:
-        required: true
+        required: false
         type: string
         default: ''
       vyos_mirror:
-        required: true
+        required: false
         type: string
         default: 'https://packages.vyos.net/repositories/'
       branch:
-        required: true
+        required: false
         type: string
         default: current
       arch:
@@ -24,7 +24,7 @@ on:
         type: string
         default: amd64
       build_by:
-        required: true
+        required: false
         type: string
         default: 'autobuild@vyos.net'
       release_version:
@@ -32,12 +32,12 @@ on:
         type: string
         default: ''
       release_flavor:
-        required: true
+        required: false
         type: string
         default: 'generic'
     secrets:
       token:
-        required: true
+        required: false
 
 env:
   BUILD_BY: ${{ inputs.build_by }}
