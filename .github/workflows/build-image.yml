@@ -14,7 +14,7 @@ on:
       vyos_mirror:
         required: false
         type: string
-        default: 'https://packages.vyos.net/repositories/'
+        default: 'https://packages.vyos.net/repositories'
       branch:
         required: false
         type: string
