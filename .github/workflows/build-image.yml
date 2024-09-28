@@ -31,10 +31,6 @@ on:
         required: false
         type: string
         default: 'generic'
-      upload_bucket_url:
-        required: false
-        type: string
-        default: ''
     secrets:
       token:
         required: false
@@ -90,15 +86,6 @@ jobs:
     - name: Show data dir
       run: |
         ls -lt data/build-flavors
-    
-    # - name: Checkout remote build repo
-    #   uses: actions/checkout@v4
-    #   with:
-    #     fetch-depth: 0
-    #     fetch-tags: true
-    #     ref: ${{ env.BUILD_BRANCH }}
-    #     repository: 'VyOS-Networks/vyos-build'
-    #     path: remote-build
 
     - name: Mark directory as safe
       run: |
@@ -128,19 +115,3 @@ jobs:
           --custom-apt-key ${{ env.LOCAL_GPG_KEY_PATH }} \
           ${{ env.RELEASE_FLAVOR }}
         ls -la build/
-
-    # - name: "Building: copy image"
-    #   if: ${{ !inputs.FAKE_BUILDING_PROCESS }}
-    #   id: copy_iso
-    #   run: |
-    #     set -eux
-    #     cp ./build/live-image-${{ inputs.arch }}.hybrid.iso ./vyos-$BUILD_VERSION-${{ inputs.arch }}.iso
-
-    # - name: "Uploading artifacts: ISO image to GitHub"
-    #   id: upload_iso_artifact
-    #   uses: actions/upload-artifact@v4
-    #   with:
-    #     name: vyos-${{ env.BUILD_VERSION }}-${{ inputs.arch }}.iso
-    #     path: ./vyos-${{ env.BUILD_VERSION }}-${{ inputs.arch }}.iso
-    #     retention-days: 10
-    #     if-no-files-found: error
