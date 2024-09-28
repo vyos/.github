@@ -73,7 +73,7 @@ jobs:
           fi
 	        echo "build_branch=$branch" >> $GITHUB_OUTPUT
     
-  build-iso:
+  build-image:
     needs: prepare-inputs
     runs-on: ubuntu-latest
     container:
@@ -88,6 +88,20 @@ jobs:
       with:
         repository: vyos/vyos-build  # Use public repo
         ref: ${{ env.BUILD_BRANCH }}
+
+    - name: Show data dir
+      run: |
+        set -eux
+        ls -lt data/build-flavors
+    
+    # - name: Checkout remote build repo
+    #   uses: actions/checkout@v4
+    #   with:
+    #     fetch-depth: 0
+    #     fetch-tags: true
+    #     ref: ${{ env.BUILD_BRANCH }}
+    #     repository: 'VyOS-Networks/vyos-build'
+    #     path: remote-build
 
     - name: Mark directory as safe
       run: |
@@ -105,7 +119,7 @@ jobs:
         wget ${{ env.VYOS_MIRROR_APT_KEY }}
         mv vyos_dev_public.key ${{ env.LOCAL_GPG_KEY_PATH }}
 
-    - name: Build ISO
+    - name: Build
       run: |
         set -eux
         git remote -v
@@ -118,18 +132,18 @@ jobs:
           ${{ env.RELEASE_FLAVOR }}
         ls -la build/
 
-    - name: "Building: copy a ${{ env.RELEASE_FLAVOR }} ISO image"
-      if: ${{ !inputs.FAKE_BUILDING_PROCESS }}
-      id: copy_iso
-      run: |
-        set -eux
-        cp ./build/live-image-${{ inputs.arch }}.hybrid.iso ./vyos-$BUILD_VERSION-${{ inputs.arch }}.iso
+    # - name: "Building: copy image"
+    #   if: ${{ !inputs.FAKE_BUILDING_PROCESS }}
+    #   id: copy_iso
+    #   run: |
+    #     set -eux
+    #     cp ./build/live-image-${{ inputs.arch }}.hybrid.iso ./vyos-$BUILD_VERSION-${{ inputs.arch }}.iso
 
-    - name: "Uploading artifacts: ISO image to GitHub"
-      id: upload_iso_artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: vyos-${{ env.BUILD_VERSION }}-${{ inputs.arch }}.iso
-        path: ./vyos-${{ env.BUILD_VERSION }}-${{ inputs.arch }}.iso
-        retention-days: 10
-        if-no-files-found: error
+    # - name: "Uploading artifacts: ISO image to GitHub"
+    #   id: upload_iso_artifact
+    #   uses: actions/upload-artifact@v4
+    #   with:
+    #     name: vyos-${{ env.BUILD_VERSION }}-${{ inputs.arch }}.iso
+    #     path: ./vyos-${{ env.BUILD_VERSION }}-${{ inputs.arch }}.iso
+    #     retention-days: 10
+    #     if-no-files-found: error
