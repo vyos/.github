@@ -95,6 +95,8 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
           repository: ${{ github.event.pull_request.head.repo.full_name }}
+      - name: Make scripts executable
+        run: chmod -R +x packages/${{ env.CURRENT_REPO_NAME }}/scripts
       - name: Build package
         run: |
           cd packages/$CURRENT_REPO_NAME; dpkg-buildpackage -uc -us -tc -b
