@@ -80,20 +80,24 @@ jobs:
     outputs:
       build_version: ${{ steps.version.outputs.build_version }}
     steps:
-      - name: Clone vyos-build source code
+      - name: Clone vyos-build repo
         uses: actions/checkout@v4
         with:
           repository: vyos/vyos-build
-      - name: Clone vyos-1x source code
+      - name: Get current repo name
+        run: |
+          REPO_NAME=$(echo "${{ github.repository }}" | awk -F'/' '{print $2}')
+          echo "CURRENT_REPO_NAME=$REPO_NAME" >> $GITHUB_ENV
+      - name: Clone current repo
         uses: actions/checkout@v4
         with:
-          path: packages/vyos-1x
+          path: packages/$CURRENT_REPO_NAME
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
           repository: ${{ github.event.pull_request.head.repo.full_name }}
-      - name: Build vyos-1x package
+      - name: Build package
         run: |
-          cd packages/vyos-1x; dpkg-buildpackage -uc -us -tc -b
+          cd packages/$CURRENT_REPO_NAME; dpkg-buildpackage -uc -us -tc -b
       - name: Generate ISO version string
         id: version
         run: |
@@ -105,7 +109,7 @@ jobs:
           --architecture ${{ inputs.arch }} \
           --build-by $BUILD_BY \
           --build-type release \
-          --custom-package vyos-1x-smoketest \
+          --custom-package vyos-package \
           --debian-mirror $DEBIAN_MIRROR \
           --version ${{ steps.version.outputs.build_version }} \
           --vyos-mirror $VYOS_MIRROR \
