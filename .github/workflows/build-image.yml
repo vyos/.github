@@ -56,16 +56,17 @@ jobs:
         id: set_branch
         run: |
           version="${{ inputs.release_version }}"
-          if [[ "$version" =~ ^1\.3\..* ]]; then
-            echo "build_branch=equuleus" >> $GITHUB_OUTPUT
-          elif [[ "$version" =~ ^1\.4\..* ]]; then
-            echo "build_branch=sagitta" >> $GITHUB_OUTPUT
-          elif [[ "$version" =~ ^1\.5\..* ]]; then
-            echo "build_branch=circinus" >> $GITHUB_OUTPUT
-          else
-            echo "ERROR - Unsupported version number $version" >&2
-            exit 1
-          fi
+          # if [[ "$version" =~ ^1\.3\..* ]]; then
+          #   echo "build_branch=equuleus" >> $GITHUB_OUTPUT
+          # elif [[ "$version" =~ ^1\.4\..* ]]; then
+          #   echo "build_branch=sagitta" >> $GITHUB_OUTPUT
+          # elif [[ "$version" =~ ^1\.5\..* ]]; then
+          #   echo "build_branch=circinus" >> $GITHUB_OUTPUT
+          # else
+          #   echo "ERROR - Unsupported version number $version" >&2
+          #   exit 1
+          # fi
+          echo "build_branch=current" >> $GITHUB_OUTPUT
 
   build:
     needs: prepare-inputs
