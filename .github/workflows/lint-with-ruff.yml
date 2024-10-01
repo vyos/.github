@@ -25,7 +25,7 @@ jobs:
           list-files: shell
           filters: |
             python:
-              - '**/*.py'
+              - added|modified: '**/*.py'
 
       - name: Install ruff 
         if: steps.py-filter.outputs.python == 'true'
