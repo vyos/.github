@@ -1,0 +1,173 @@
+name: Build Image (VYOS)
+
+on:
+  workflow_call:
+    inputs:
+      debian_mirror_url:
+        required: false
+        type: string
+        default: 'http://deb.debian.org/debian/'
+      debian_security_mirror_url:
+        required: false
+        type: string
+        default: ''
+      vyos_mirror_base_url:
+        required: false
+        type: string
+        default: 'https://packages.vyos.net/repositories'
+      arch:
+        required: false
+        type: string
+        default: amd64
+      build_by:
+        required: false
+        type: string
+        default: 'autobuild@vyos.net'
+      release_version:
+        required: true
+        type: string
+        default: ''
+      release_flavor:
+        required: false
+        type: string
+        default: 'generic'
+    secrets:
+      token:
+        required: false
+
+env:
+  BUILD_BY: ${{ inputs.build_by }}
+  DEBIAN_MIRROR: ${{ inputs.debian_mirror_url }}
+  VYOS_MIRROR_APT_KEY: https://packages.vyos.net/vyos_dev_public.key
+  LOCAL_GPG_KEY_PATH: /etc/apt/trusted.gpg.d/vyos_dev.gpg
+  RELEASE_FLAVOR: ${{ inputs.release_flavor }}
+  RELEASE_VERSION: ${{ inputs.release_version }}
+
+jobs:
+  prepare-inputs:
+    runs-on: ubuntu-latest
+    outputs:
+      build_branch: ${{ steps.set_branch.outputs.build_branch }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Set vyos-build branch based on version
+        id: set_branch
+        run: |
+          version="${{ inputs.release_version }}"
+          if [[ "$version" =~ ^1\.3\..* ]]; then
+            echo "build_branch=equuleus" >> $GITHUB_OUTPUT
+          elif [[ "$version" =~ ^1\.4\..* ]]; then
+            echo "build_branch=sagitta" >> $GITHUB_OUTPUT
+          elif [[ "$version" =~ ^1\.5\..* ]]; then
+            echo "build_branch=circinus" >> $GITHUB_OUTPUT
+          else
+            echo "ERROR - Unsupported version number $version" >&2
+            exit 1
+          fi
+
+  build:
+    needs: prepare-inputs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    container:
+      image: vyos/vyos-build:current
+      options: --sysctl net.ipv6.conf.lo.disable_ipv6=0 --privileged
+    env:
+      BUILD_BRANCH: ${{ needs.prepare-inputs.outputs.build_branch }}
+      VYOS_MIRROR: ${{ inputs.vyos_mirror_base_url }}/${{ needs.prepare-inputs.outputs.build_branch }}/
+    outputs:
+      build_version: ${{ steps.version.outputs.build_version }}
+    steps:
+      - name: Clone vyos-build repo
+        uses: actions/checkout@v4
+        with:
+          repository: vyos/vyos-build
+      - name: Get current repo name
+        run: |
+          REPO_NAME=$(echo "${{ github.repository }}" | awk -F'/' '{print $2}')
+          echo "CURRENT_REPO_NAME=$REPO_NAME" >> $GITHUB_ENV
+      - name: Clone current repo
+        uses: actions/checkout@v4
+        with:
+          path: packages/${{ env.CURRENT_REPO_NAME }}
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+          repository: ${{ github.repository }}
+      - name: Make scripts executable
+        run: |
+          chmod -R +x packages/${{ env.CURRENT_REPO_NAME }}/scripts
+          chmod -R +x packages/${{ env.CURRENT_REPO_NAME }}/python
+      - name: Build package
+        run: |
+          cd packages/$CURRENT_REPO_NAME; dpkg-buildpackage -uc -us -tc -b
+      - name: Generate ISO version string
+        id: version
+        run: |
+          echo "build_version=${{ env.RELEASE_VERSION }}-${{ env.BUILD_BRANCH }}-$(date -u +%Y%m%d%H%M)" >> $GITHUB_OUTPUT
+      - name: Build custom ISO image
+        shell: bash
+        run: |
+          sudo --preserve-env ./build-vyos-image \
+          --architecture ${{ inputs.arch }} \
+          --build-by $BUILD_BY \
+          --build-type release \
+          --custom-package vyos-1x-smoketest \
+          --debian-mirror http://deb.debian.org/debian/ \
+          --version ${{ steps.version.outputs.build_version }} \
+          --vyos-mirror https://rolling-packages.vyos.net/current/ \
+          $RELEASE_FLAVOR
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vyos-${{ steps.version.outputs.build_version }}
+          path: build/live-image-amd64.hybrid.iso
+    
+  # build-image:
+  #   needs: prepare-inputs
+  #   runs-on: ubuntu-latest
+  #   container:
+  #     image: vyos/vyos-build:${{ needs.prepare-inputs.outputs.build_branch }}
+  #     options: --workdir /vyos --privileged
+  #   env:
+  #     BUILD_BRANCH: ${{ needs.prepare-inputs.outputs.build_branch }}
+  #     VYOS_MIRROR: ${{ inputs.vyos_mirror_base_url }}/${{ needs.prepare-inputs.outputs.build_branch }}/
+  #   steps:
+  #   - name: Checkout source code
+  #     uses: actions/checkout@v4
+  #     with:
+  #       repository: vyos/vyos-build  # Use public repo
+  #       ref: ${{ env.BUILD_BRANCH }}
+
+  #   - name: Show data dir
+  #     run: |
+  #       ls -lt data/build-flavors
+
+  #   - name: Mark directory as safe
+  #     run: |
+  #       set -eux
+  #       git config --global --add safe.directory '*'
+
+  #   - name: Setup env variables
+  #     run: |
+  #       set -eux
+  #       echo "BUILD_VERSION=${{ env.RELEASE_VERSION }}-${{ env.BUILD_BRANCH }}-$(date -u +%Y%m%d%H%M)" >> $GITHUB_ENV
+
+  #   - name: Get apt key
+  #     run: |
+  #       set -eux
+  #       wget ${{ env.VYOS_MIRROR_APT_KEY }}
+  #       mv vyos_dev_public.key ${{ env.LOCAL_GPG_KEY_PATH }}
+
+  #   - name: Build
+  #     run: |
+  #       set -eux
+  #       git remote -v
+  #       ./build-vyos-image \
+  #         --build-by ${{ env.BUILD_BY }} \
+  #         --build-type release \
+  #         --version $BUILD_VERSION \
+  #         --vyos-mirror ${{ env.VYOS_MIRROR }} \
+  #         --custom-apt-key ${{ env.LOCAL_GPG_KEY_PATH }} \
+  #         ${{ env.RELEASE_FLAVOR }}
+  #       ls -la build/
