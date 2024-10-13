@@ -1,28 +1,9 @@
-name: Build Image (VYOS)
+
+name: Reusable VyOS image build
 
 on:
   workflow_call:
     inputs:
-      debian_mirror_url:
-        required: false
-        type: string
-        default: 'http://deb.debian.org/debian/'
-      debian_security_mirror_url:
-        required: false
-        type: string
-        default: ''
-      vyos_mirror_base_url:
-        required: false
-        type: string
-        default: 'https://packages.vyos.net/repositories'
-      arch:
-        required: false
-        type: string
-        default: amd64
-      build_by:
-        required: false
-        type: string
-        default: 'autobuild@vyos.net'
       release_version:
         required: true
         type: string
@@ -31,87 +12,146 @@ on:
         required: false
         type: string
         default: 'generic'
+      release_arch:
+        required: false
+        type: string
+        default: 'amd64'
     secrets:
       token:
         required: false
+      minisign_public_key:
+        required: true
+      minisign_private_key:
+        required: true
+      minisign_password:
+        required: true
+
+run-name: Build ${{ inputs.release_arch }} image for ${{ inputs.release_version }} version
 
 env:
-  BUILD_BY: ${{ inputs.build_by }}
-  DEBIAN_MIRROR: ${{ inputs.debian_mirror_url }}
   VYOS_MIRROR_APT_KEY: https://packages.vyos.net/vyos_dev_public.key
-  LOCAL_GPG_KEY_PATH: /etc/apt/trusted.gpg.d/vyos_dev.gpg
-  RELEASE_FLAVOR: ${{ inputs.release_flavor }}
-  RELEASE_VERSION: ${{ inputs.release_version }}
+  STREAM_PUBLISH_REPO: vyos/vyos-workflow-testing
+  BUILD_BY: 'autobuild@vyos.net'
+  PACKAGE_NAME: vyos-1x-smoketest
+  DEBIAN_MIRROR_URL: 'http://deb.debian.org/debian/'
+  DEBIAN_SECURITY_MIRROR_URL: 'https://deb.debian.org/debian/'
+  VYOS_MIRROR_BASE_URL: 'https://packages.vyos.net/repositories'
 
 jobs:
   prepare-inputs:
     runs-on: ubuntu-latest
     outputs:
-      build_branch: ${{ steps.set_branch.outputs.build_branch }}
+      owner: ${{ steps.set_repo.outputs.owner }}
+      branch: ${{ steps.set_repo.outputs.branch }}
+      vyos_mirror_url: ${{ steps.set_mirror.outputs.vyos_mirror_url }}
+      build_version: ${{ steps.set_build_version.outputs.build_version }}
+      iso_file_name: ${{ steps.set_iso_file_name.outputs.iso_file_name }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
 
       - name: Set vyos-build branch based on version
-        id: set_branch
+        id: set_repo
         run: |
           version="${{ inputs.release_version }}"
           if [[ "$version" =~ ^1\.3\..* ]]; then
-            echo "build_branch=equuleus" >> $GITHUB_OUTPUT
+            echo "owner=vyos" >> $GITHUB_OUTPUT
+            echo "branch=equuleus" >> $GITHUB_OUTPUT
           elif [[ "$version" =~ ^1\.4\..* ]]; then
-            echo "build_branch=sagitta" >> $GITHUB_OUTPUT
+            echo "owner=VyOS-Networks" >> $GITHUB_OUTPUT
+            echo "branch=sagitta" >> $GITHUB_OUTPUT
           elif [[ "$version" =~ ^1\.5\..* ]]; then
-            echo "build_branch=circinus" >> $GITHUB_OUTPUT
+            echo "owner=vyos" >> $GITHUB_OUTPUT
+            echo "branch=circinus" >> $GITHUB_OUTPUT 
           else
             echo "ERROR - Unsupported version number $version" >&2
             exit 1
           fi
 
-  build-image:
-    needs: prepare-inputs
-    runs-on: ubuntu-latest
+      - name: Set vyos mirror url
+        id: set_mirror
+        run: |
+          vyos_mirror_url="${{ env.VYOS_MIRROR_BASE_URL }}/${{ steps.set_repo.outputs.build_branch }}/"
+          echo "vyos_mirror_url=$vyos_mirror_url" >> $GITHUB_OUTPUT
+
+      - name: Setup build version
+        id: set_build_version
+        run: |
+          echo "build_version=${{ inputs.release_version }}-${{ steps.set_repo.outputs.build_branch }}-$(date -u +%Y%m%d%H%M)" >> $GITHUB_OUTPUT
+
+      - name: set iso file name
+        id: set_iso_file_name
+        run: |
+          iso_file_name='vyos-${{ steps.set_build_version.outputs.build_version }}-${{ inputs.release_flavor}}-${{ inputs.release_arch }}.iso'
+          echo "iso_file_name=$iso_file_name" >> $GITHUB_OUTPUT
+
+  build_iso:
+    runs-on: self-hosted
+    outputs:
+      artifact_id: ${{ steps.upload_iso_artifact.outputs.artifact-id }}
     container:
-      image: vyos/vyos-build:current
+      image: vyos/vyos-build:${{ needs.prepare-inputs.outputs.branch }}
       options: --workdir /vyos --privileged
     env:
-      BUILD_BRANCH: ${{ needs.prepare-inputs.outputs.build_branch }}
-      VYOS_MIRROR: ${{ inputs.vyos_mirror_base_url }}/${{ needs.prepare-inputs.outputs.build_branch }}/
-    steps:
-    - name: Checkout source code
+      OWNNER: ${{ needs.prepare-inputs.outputs.owner }}
+      BRANCH: ${{ needs.prepare-inputs.outputs.branch }}
+      BUILD_VERSION: ${{ needs.prepare-inputs.outputs.build_version }}
+      MIRROR_URL: ${{ needs.prepare-inputs.outputs.vyos_mirror_url }}
+      ISO_FILE: ${{ needs.prepare-inputs.outputs.iso_file_name }}
+
+    steps:  
+    - name: Checkout ${{ env.BRANCH }} source code
       uses: actions/checkout@v4
       with:
-        repository: vyos/vyos-build  # Use public repo
-        ref: ${{ env.BUILD_BRANCH }}
-
-    - name: Show data dir
-      run: |
-        ls -lt data/build-flavors
+        repository: ${{ env.OWNNER }}/vyos-build
+        ref: ${{ env.BRANCH }}
+        token: ${{ secrets.token }}
 
     - name: Mark directory as safe
       run: |
         set -eux
         git config --global --add safe.directory '*'
 
-    - name: Setup env variables
+    - name: Install minisign
       run: |
-        set -eux
-        echo "BUILD_VERSION=${{ env.RELEASE_VERSION }}-${{ env.BUILD_BRANCH }}-$(date -u +%Y%m%d%H%M)" >> $GITHUB_ENV
+        sudo apt-get install -y minisign
 
-    - name: Get apt key
-      run: |
-        set -eux
-        wget ${{ env.VYOS_MIRROR_APT_KEY }}
-        mv vyos_dev_public.key ${{ env.LOCAL_GPG_KEY_PATH }}
-
-    - name: Build
+    - name: Build ISO
       run: |
         set -eux
         git remote -v
-        ./build-vyos-image \
+        sudo --preserve-env ./build-vyos-image \
           --build-by ${{ env.BUILD_BY }} \
           --build-type release \
-          --version $BUILD_VERSION \
-          --vyos-mirror ${{ env.VYOS_MIRROR }} \
-          --custom-apt-key ${{ env.LOCAL_GPG_KEY_PATH }} \
-          ${{ env.RELEASE_FLAVOR }}
-        ls -la build/
+          --custom-package ${{ env.PACKAGE_NAME }} \
+          --version ${{ env.BUILD_VERSION }} \
+          --vyos-mirror ${{ env.MIRROR_URL }} \
+          ${{ inputs.release_flavor}}
+
+    - name: Sign generic ISO image
+      shell: bash
+      run: |
+          echo "${{ secrets.minisign_private_key }}" > /tmp/minisign.key
+          echo "${{ secrets.minisign_public_key }}" > /tmp/minisign.pub
+          mv build/${{ env.ISO_FILE }} .
+          echo "${{ secrets.minisign_password }}" | /usr/bin/minisign -s /tmp/minisign.key -Sm ${{ env.ISO_FILE }}
+          /usr/bin/minisign -Vm ${{ env.ISO_FILE }} -x ${{ env.ISO_FILE }}.minisig -p /tmp/minisign.pub
+          rm /tmp/minisign.key /tmp/minisign.pub && ls -la
+
+    - name: "Uploading artifacts: ISO image to GitHub"
+      id: upload_iso_artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.ISO_FILE }}
+        path: ./${{ env.ISO_FILE }}
+        retention-days: 10
+        if-no-files-found: error
+      
+    - name: "Uploading minisign file to GitHub"
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.ISO_FILE }}.minisig
+        path: ${{ env.ISO_FILE }}.minisig
+        retention-days: 10
+        if-no-files-found: error

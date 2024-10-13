@@ -1,4 +1,4 @@
-name: Build Image (VYOS)
+name: Build Image (VYOS Smoke Test)
 
 on:
   workflow_call:
@@ -67,7 +67,7 @@ jobs:
             exit 1
           fi
 
-  build:
+  build-for-smoke-test:
     needs: prepare-inputs
     runs-on: ubuntu-24.04
     timeout-minutes: 45
