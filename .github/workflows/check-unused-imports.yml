@@ -17,7 +17,7 @@ jobs:
 
       - name: Get changed files
         id: changed-files
-        uses: actions/github-script@v4T
+        uses: actions/github-script@v4
         with:
           script: |
             const prNumber = context.payload.pull_request.number;
