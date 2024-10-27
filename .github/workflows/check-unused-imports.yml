@@ -28,6 +28,10 @@ jobs:
             });
             return files.map(file => file.filename).filter(file => file.endsWith('.py'));
 
+      - name: Print changed files
+        run: |
+          echo "Changed files: ${{ steps.changed-files.outputs.result }}"
+
       # - name: Print changed files
       #   run: echo "Changed files: ${{ steps.changed-files.outputs.result }}"
 
