@@ -15,18 +15,18 @@ jobs:
           ref: refs/pull/${{ github.event.pull_request.number }}/merge
           repository: ${{ github.event.pull_request.base.repo.full_name }}
 
-      # - name: Get changed files
-      #   id: changed-files
-      #   uses: actions/github-script@v4
-      #   with:
-      #     script: |
-      #       const prNumber = context.payload.pull_request.number;
-      #       const { data: files } = await github.pulls.listFiles({
-      #         owner: context.repo.owner,
-      #         repo: context.repo.repo,
-      #         pull_number: prNumber,
-      #       });
-      #       return files.map(file => file.filename).filter(file => file.endsWith('.py'));
+      - name: Get changed files
+        id: changed-files
+        uses: actions/github-script@v4T
+        with:
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            const { data: files } = await github.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+            return files.map(file => file.filename).filter(file => file.endsWith('.py'));
 
       # - name: Print changed files
       #   run: echo "Changed files: ${{ steps.changed-files.outputs.result }}"
