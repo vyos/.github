@@ -26,7 +26,7 @@ jobs:
               repo: context.repo.repo,
               pull_number: prNumber,
             });
-            const changedFiles = files.map(file => file.filename).filter(file => file.endsWith('.py'));
+            const changedFiles = files.map(file => file.filename).filter(file => file.startsWith('src/'));
             console.log("Changed files:", changedFiles);
             return { result: changedFiles.join(',') };
 
