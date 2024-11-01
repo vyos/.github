@@ -34,7 +34,8 @@
             source_pr_title=$(gh pr view "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --json title -q .title)
             echo "source_pr_title=$source_pr_title"
             title_regex='^(([a-zA-Z0-9\-_.]+:\s)?)T\d+:\s+[^\s]+.*'
-            if [[ ! $source_pr_title =~ $title_regex ]]; then
+            echo "$source_pr_title" | grep -E "$title_regex" > /dev/null
+            if [[ $? -ne 0 ]]; then
               echo "PR title '$source_pr_title' does not match the required format!"
               echo "error_message=PR title does not match the required format" >> $GITHUB_ENV
               echo "Valid title example: T99999: make IPsec secure"
@@ -49,7 +50,8 @@
             commit_regex='^(([a-zA-Z0-9\-_.]+:\s)?)T\d+:\s+[^\s]+.*'
             commits=$(gh pr view "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --json commits -q '.commits[].commit.message')
             for commit_message in $commits; do
-              if [[ ! $commit_message =~ $commit_regex ]]; then
+              echo "$commit_message" | grep -E "$commit_regex" > /dev/null
+              if [[ $? -ne 0 ]]; then
                 echo "Commit message '$commit_message' does not match the required format!"
                 echo "error_message=Commit message does not match the required format!" >> $GITHUB_ENV
                 echo "Valid commit message example: T99999: make IPsec secure"
