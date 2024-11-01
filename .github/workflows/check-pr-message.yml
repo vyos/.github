@@ -41,8 +41,6 @@
               exit 1
             fi
             echo "PR title '$source_pr_title' is valid."
-            echo "error_message=No issues in PR Title / Commit Title" >> $GITHUB_ENV
-          shell: bash
 
         - name: Check commit messages
           timeout-minutes: 2
