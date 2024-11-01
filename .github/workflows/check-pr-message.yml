@@ -31,7 +31,7 @@
           timeout-minutes: 2
           id: check_pr_title
           run: |
-            source_pr_title=$(gh pr view "${{ github.event.pull_request.number }}" --repo "{{ github.repository }}" --json title -q .title)
+            source_pr_title=$(gh pr view "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --json title -q .title)
             echo "source_pr_title=$source_pr_title"
             # ./reusable-actions/scripts/check-pr-title-and-commit-messages.py ${{ github.event.pull_request.url }} ${{ secrets.PAT }}
             # output=$(./reusable-actions/scripts/check-pr-title-and-commit-messages.py '${{ github.event.pull_request.url }}' '${{ secrets.PAT }}' 2>&1 || true)
