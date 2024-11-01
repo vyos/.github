@@ -28,7 +28,7 @@
           timeout-minutes: 2
           id: check_pr_title
           run: |
-            output=$(./reusable-actions/scripts/check-pr-title-and-commit-messages.py '${{ github.event.pull_request.url }}' 2>&1 || true)
+            output=$(./reusable-actions/scripts/check-pr-title-and-commit-messages.py '${{ github.event.pull_request.url }}' '${{ secrets.PAT }}' 2>&1 || true)
             if [ -n "$output" ]; then
               echo "$output"
               echo "error_message=${output//$'\n'/. }" >> $GITHUB_ENV         
