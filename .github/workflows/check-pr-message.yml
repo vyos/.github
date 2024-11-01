@@ -28,6 +28,7 @@
           timeout-minutes: 2
           id: check_pr_title
           run: |
+            ./reusable-actions/scripts/check-pr-title-and-commit-messages.py ${{ github.event.pull_request.url }} ${{ secrets.PAT }}
             output=$(./reusable-actions/scripts/check-pr-title-and-commit-messages.py '${{ github.event.pull_request.url }}' '${{ secrets.PAT }}' 2>&1 || true)
             if [ -n "$output" ]; then
               echo "$output"
