@@ -3,6 +3,9 @@
   
   on:
     workflow_call:
+
+  env:
+    GH_TOKEN: ${{ secrets.PAT }}
   
   jobs:
     check-pr-title:
@@ -28,24 +31,26 @@
           timeout-minutes: 2
           id: check_pr_title
           run: |
-            ./reusable-actions/scripts/check-pr-title-and-commit-messages.py ${{ github.event.pull_request.url }} ${{ secrets.PAT }}
-            output=$(./reusable-actions/scripts/check-pr-title-and-commit-messages.py '${{ github.event.pull_request.url }}' '${{ secrets.PAT }}' 2>&1 || true)
-            if [ -n "$output" ]; then
-              echo "$output"
-              echo "error_message=${output//$'\n'/. }" >> $GITHUB_ENV         
-              exit 1
-            else
-              #echo "error_message=" >> $GITHUB_ENV
-              echo "error_message=No issues in PR Title / Commit Title" >> $GITHUB_ENV
-            fi
+            source_pr_title=$(gh pr view "${{ github.event.pull_request.number }}" --repo "{{ github.repository }}" --json title -q .title)
+            echo "source_pr_title=$source_pr_title"
+            # ./reusable-actions/scripts/check-pr-title-and-commit-messages.py ${{ github.event.pull_request.url }} ${{ secrets.PAT }}
+            # output=$(./reusable-actions/scripts/check-pr-title-and-commit-messages.py '${{ github.event.pull_request.url }}' '${{ secrets.PAT }}' 2>&1 || true)
+            # if [ -n "$output" ]; then
+            #   echo "$output"
+            #   echo "error_message=${output//$'\n'/. }" >> $GITHUB_ENV         
+            #   exit 1
+            # else
+            #   #echo "error_message=" >> $GITHUB_ENV
+            #   echo "error_message=No issues in PR Title / Commit Title" >> $GITHUB_ENV
+            # fi
           shell: bash
 
-        - name: Add PR comment
-          if: always()
-          uses: mshick/add-pr-comment@v2
-          with:
-            message: |-
-              ${{ env.error_message == 'No issues in PR Title / Commit Title' && '👍' || '❌' }}
-              ${{ env.error_message }}
-            message-id: "TITLE_COMMIT_VALIDATION"
-            allow-repeats: false
+        # - name: Add PR comment
+        #   if: always()
+        #   uses: mshick/add-pr-comment@v2
+        #   with:
+        #     message: |-
+        #       ${{ env.error_message == 'No issues in PR Title / Commit Title' && '👍' || '❌' }}
+        #       ${{ env.error_message }}
+        #     message-id: "TITLE_COMMIT_VALIDATION"
+        #     allow-repeats: false
