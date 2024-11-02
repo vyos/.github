@@ -24,6 +24,11 @@
           with:
             repository: vyos/.github
             path: reusable-actions
+
+        - name: Set up Python
+          uses: actions/setup-python@v5
+          with:
+            python-version: '3.11'
   
         - name: Set execute permissions for the script
           run: |
