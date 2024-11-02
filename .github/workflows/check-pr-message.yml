@@ -40,7 +40,7 @@
             ls -ltr reusable-actions/scripts
             source_pr_title=$(gh pr view "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --json title -q .title)
             echo "source_pr_title=$source_pr_title"
-            output=$(python reusable-actions/scripts/regex_check.py -i '$source_pr_title' -r '^(([a-zA-Z0-9\-_.]+:\s)?)T\d+:\s+[^\s]+.*')
+            output=$(python reusable-actions/scripts/regex_check.py -i '$source_pr_title' -r '^(?:[a-zA-Z0-9\-_.]+: )?T\d+: .+')
             echo "output=$output"
             if [ "$output" == "false" ]; then
               echo "PR title '$source_pr_title' does not match the required format!"
