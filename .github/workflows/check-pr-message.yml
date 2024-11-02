@@ -37,19 +37,28 @@
         - name: Check the PR title
           timeout-minutes: 2
           run: |
-            ls -ltr reusable-actions/scripts
+            # ls -ltr reusable-actions/scripts
             source_pr_title=$(gh pr view "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --json title -q .title)
             echo "source_pr_title=$source_pr_title"
-            output=$(python reusable-actions/scripts/regex_check.py -i '$source_pr_title' -r '^(?:[a-zA-Z0-9\-_.]+: )?T\d+: .+')
-            echo "output=$output"
-            if [ "$output" == "false" ]; then
-              echo "PR title '$source_pr_title' does not match the required format!"
-              echo "error_message=PR title does not match the required format" >> $GITHUB_ENV
-              echo "Valid title example: T99999: make IPsec secure"
-              exit 1
+            if echo "$source_pr_title" | grep -Pq '^(([a-zA-Z0-9\-_.]+:\s)?)T\d+:\s+[^\s]+.*'; then
+                echo "PR title '$source_pr_title' is valid."
+                echo "error_message=PR title does not match the required format" >> $GITHUB_ENV
+                echo "Valid title example: T99999: make IPsec secure"
+                exit 1
+            else
+                echo "PR title '$source_pr_title' does not match the required format!"
+                echo "error_message=No issues in PR Title / Commit Title" >> $GITHUB_ENV
             fi
-            echo "PR title '$source_pr_title' is valid."
-            echo "error_message=No issues in PR Title / Commit Title" >> $GITHUB_ENV
+            # output=$(python reusable-actions/scripts/regex_check.py -i '$source_pr_title' -r '^(?:[a-zA-Z0-9\-_.]+: )?T\d+: .+')
+            # echo "output=$output"
+            # if [ "$output" == "false" ]; then
+            #   echo "PR title '$source_pr_title' does not match the required format!"
+            #   echo "error_message=PR title does not match the required format" >> $GITHUB_ENV
+            #   echo "Valid title example: T99999: make IPsec secure"
+            #   exit 1
+            # fi
+            # echo "PR title '$source_pr_title' is valid."
+            # echo "error_message=No issues in PR Title / Commit Title" >> $GITHUB_ENV
         
         - name: Check commit messages
           timeout-minutes: 2
