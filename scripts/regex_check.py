@@ -21,5 +21,9 @@ input = args.input
 regex = args.regex
 
 if __name__ == '__main__':
+    print(f"regex={regex}, input={input}")
+    match = re.match(regex, input)
+    print(f"match={match}")
     output = 'true' if re.match(regex, input) else 'false'
+    print(f"output={output}")
     print(output)
