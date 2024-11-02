@@ -35,7 +35,7 @@
             ls -ltr reusable-actions/scripts
             source_pr_title=$(gh pr view "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --json title -q .title)
             echo "source_pr_title=$source_pr_title"
-            output=$(python reusable-actions/scripts/regex_check.py -i '$source_pr_title' -r '$TITLE_REGEX')
+            output=$(python reusable-actions/scripts/regex_check.py -i '$source_pr_title' -r '^(([a-zA-Z0-9\-_.]+:\s)?)T\d+:\s+[^\s]+.*')
             echo "output=$output"
             if [ "$output" == "false" ]; then
               echo "PR title '$source_pr_title' does not match the required format!"
@@ -51,7 +51,7 @@
           run: |
             commits=$(gh pr view "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --json commits -q '.commits[].commit.message')
             for commit_message in $commits; do
-              output=$(python reusable-actions/scripts/regex_check.py -i '$commit_message' -r '$TITLE_REGEX')
+              output=$(python reusable-actions/scripts/regex_check.py -i '$commit_message' -r '^(([a-zA-Z0-9\-_.]+:\s)?)T\d+:\s+[^\s]+.*')
               echo "output=$output"
               if [ "$output" == "false" ]; then
                 echo "Commit message '$commit_message' does not match the required format!"
