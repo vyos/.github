@@ -29,29 +29,24 @@
   
         - name: Check the PR title
           timeout-minutes: 2
-          id: check_pr_title
           run: |
             source_pr_title=$(gh pr view "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --json title -q .title)
             echo "source_pr_title=$source_pr_title"
-            title_regex='^(([a-zA-Z0-9\-_.]+:\s)?)T\d+:\s+[^\s]+.*'
-            echo "$source_pr_title" | grep -E "$title_regex" > /dev/null
-            if [[ $? -ne 0 ]]; then
+            if [[ ! "$source_pr_title" =~ ^(([a-zA-Z0-9\-_.]+:\s)?)T\d+:\s+[^\s]+.* ]]; then
               echo "PR title '$source_pr_title' does not match the required format!"
               echo "error_message=PR title does not match the required format" >> $GITHUB_ENV
               echo "Valid title example: T99999: make IPsec secure"
               exit 1
             fi
             echo "PR title '$source_pr_title' is valid."
-
+            echo "error_message=No issues in PR Title / Commit Title" >> $GITHUB_ENV
+        
         - name: Check commit messages
           timeout-minutes: 2
-          id: check_commit_messages
           run: |
-            commit_regex='^(([a-zA-Z0-9\-_.]+:\s)?)T\d+:\s+[^\s]+.*'
             commits=$(gh pr view "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --json commits -q '.commits[].commit.message')
             for commit_message in $commits; do
-              echo "$commit_message" | grep -E "$commit_regex" > /dev/null
-              if [[ $? -ne 0 ]]; then
+              if [[ ! "$commit_message" =~ ^(([a-zA-Z0-9\-_.]+:\s)?)T\d+:\s+[^\s]+.* ]]; then
                 echo "Commit message '$commit_message' does not match the required format!"
                 echo "error_message=Commit message does not match the required format!" >> $GITHUB_ENV
                 echo "Valid commit message example: T99999: make IPsec secure"
