@@ -22,8 +22,9 @@ regex = args.regex
 
 if __name__ == '__main__':
     print(f"regex={regex}, input={input}")
-    match = re.match(regex, input)
+    title_regex = r'^(([a-zA-Z0-9\-_.]+:\s)?)T\d+:\s+[^\s]+.*'
+    match = re.match(title_regex, input)
     print(f"match={match}")
-    output = 'true' if re.match(regex, input) else 'false'
+    output = 'true' if match else 'false'
     print(f"output={output}")
     print(output)
