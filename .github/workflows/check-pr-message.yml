@@ -25,8 +25,9 @@
             repository: vyos/.github
             path: reusable-actions
   
-        - name: Install the requests library
-          run: pip3 install requests
+        - name: Set execute permissions for the script
+          run: |
+            chmod +x reusable-actions/scripts/regex_check.py
   
         - name: Check the PR title
           timeout-minutes: 2
@@ -34,7 +35,7 @@
             ls -ltr reusable-actions/scripts
             source_pr_title=$(gh pr view "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --json title -q .title)
             echo "source_pr_title=$source_pr_title"
-            output=$(./reusable-actions/scripts/regex_check.py -i '$source_pr_title' '$TITLE_REGEX')
+            output=$(reusable-actions/scripts/regex_check.py -i '$source_pr_title' '$TITLE_REGEX')
             if [ "$output" == "false" ]; then
               echo "PR title '$source_pr_title' does not match the required format!"
               echo "error_message=PR title does not match the required format" >> $GITHUB_ENV
@@ -49,7 +50,7 @@
           run: |
             commits=$(gh pr view "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --json commits -q '.commits[].commit.message')
             for commit_message in $commits; do
-              output=$(./reusable-actions/scripts/regex_check.py -i '$commit_message' '$TITLE_REGEX')
+              output=$(reusable-actions/scripts/regex_check.py -i '$commit_message' '$TITLE_REGEX')
               if [ "$output" == "false" ]; then
                 echo "Commit message '$commit_message' does not match the required format!"
                 echo "error_message=Commit message does not match the required format!" >> $GITHUB_ENV
