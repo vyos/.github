@@ -31,6 +31,7 @@
         - name: Check the PR title
           timeout-minutes: 2
           run: |
+            ls -ltr ./reusable-actions/scripts
             source_pr_title=$(gh pr view "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --json title -q .title)
             echo "source_pr_title=$source_pr_title"
             output=$(python ./reusable-actions/scripts/check_regex.py -i '$source_pr_title' '$TITLE_REGEX')
