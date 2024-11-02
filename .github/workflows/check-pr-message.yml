@@ -6,6 +6,7 @@
 
   env:
     GH_TOKEN: ${{ secrets.PAT }}
+    TITLE_REGEX: ^(([a-zA-Z0-9\-_.]+:\s)?)T\d+:\s+[^\s]+.*
   
   jobs:
     check-pr-title:
@@ -32,7 +33,8 @@
           run: |
             source_pr_title=$(gh pr view "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --json title -q .title)
             echo "source_pr_title=$source_pr_title"
-            if [[ ! "$source_pr_title" =~ ^(([a-zA-Z0-9\-_.]+:\s)?)T\d+:\s+[^\s]+.* ]]; then
+            output=$(python ./reusable-actions/scripts/check-regex.py -i '$source_pr_title' '$TITLE_REGEX')
+            if [ "$output" == "false" ]; then
               echo "PR title '$source_pr_title' does not match the required format!"
               echo "error_message=PR title does not match the required format" >> $GITHUB_ENV
               echo "Valid title example: T99999: make IPsec secure"
@@ -46,7 +48,8 @@
           run: |
             commits=$(gh pr view "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --json commits -q '.commits[].commit.message')
             for commit_message in $commits; do
-              if [[ ! "$commit_message" =~ ^(([a-zA-Z0-9\-_.]+:\s)?)T\d+:\s+[^\s]+.* ]]; then
+              output=$(python ./reusable-actions/scripts/check-regex.py -i '$commit_message' '$TITLE_REGEX')
+              if [ "$output" == "false" ]; then
                 echo "Commit message '$commit_message' does not match the required format!"
                 echo "error_message=Commit message does not match the required format!" >> $GITHUB_ENV
                 echo "Valid commit message example: T99999: make IPsec secure"

@@ -23,17 +23,9 @@ def check_commit_message(title):
         sys.exit(1)
 
 if __name__ == '__main__':
-    if len(sys.argv) < 3:
-        print("Usage: {} <pull_request_url> <github_token>".format(sys.argv[0]))
+    if len(sys.argv) < 2:
+        print("Please specify pull request URL!")
         sys.exit(1)
-
-    pr_url = sys.argv[1]
-    github_token = sys.argv[2]
-
-    headers = {
-        'Authorization': f'token {github_token}',
-        'Accept': 'application/vnd.github.v3+json'
-    }
 
     # There seems to be a race condition that causes this scripts to receive
     # an incomplete PR object that is missing certain fields,
@@ -43,9 +35,7 @@ if __name__ == '__main__':
     time.sleep(5)
 
     # Get the pull request object
-    pr_response = requests.get(pr_url, headers=headers)
-    pr_response.raise_for_status()
-    pr = pr_response.json()
+    pr = requests.get(sys.argv[1]).json()
     if "title" not in pr:
         print("The PR object does not have a title field!")
         print("Did not receive a valid pull request object, please check the URL!")
