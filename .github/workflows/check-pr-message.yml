@@ -6,7 +6,6 @@
 
   env:
     GH_TOKEN: ${{ secrets.PAT }}
-    TITLE_REGEX: ^(([a-zA-Z0-9\-_.]+:\s)?)T\d+:\s+[^\s]+.*
   
   jobs:
     check-pr-title:
@@ -29,7 +28,6 @@
           timeout-minutes: 2
           run: |
             source_pr_title=$(gh pr view "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --json title -q .title)
-            echo "source_pr_title=$source_pr_title"
             if echo "$source_pr_title" | grep -Pq '^(([a-zA-Z0-9\-_.]+:\s)?)T\d+:\s+[^\s]+.*'; then
                 echo "PR title '$source_pr_title' is valid."
                 echo "error_message=No issues in PR Title / Commit Title" >> $GITHUB_ENV
