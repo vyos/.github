@@ -44,14 +44,14 @@
           timeout-minutes: 2
           run: |
             # Fetch commit messages
-            commits=$(gh pr view "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --json commits -q '.commits[].commit.message')
+            commits=$(gh pr view "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --json commits -q '.commits[].messageHeadline')
             
             # Debug: Print all commit messages
-            echo "Commit messages: $commits"
+            echo "Commit messages:"
+            echo "$commits"
             
             # Iterate over each commit message
-            IFS=$'\n' # Set Internal Field Separator to newline to handle multi-line commit messages
-            for commit_message in $commits; do
+            echo "$commits" | while IFS= read -r commit_message; do
               if echo "$commit_message" | grep -Pq '^(([a-zA-Z0-9\-_.]+:\s)?)T\d+:\s+[^\s]+.*'; then
                   echo "Commit message '$commit_message' is valid."
               else
