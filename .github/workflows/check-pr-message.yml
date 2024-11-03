@@ -45,11 +45,6 @@
           run: |
             # Fetch commit messages
             commits=$(gh pr view "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --json commits -q '.commits[].messageHeadline')
-            
-            # Debug: Print all commit messages
-            echo "Commit messages:"
-            echo "$commits"
-            
             # Iterate over each commit message
             echo "$commits" | while IFS= read -r commit_message; do
               if echo "$commit_message" | grep -Pq '^(([a-zA-Z0-9\-_.]+:\s)?)T\d+:\s+[^\s]+.*'; then
