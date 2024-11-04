@@ -3,6 +3,9 @@
   
   on:
     workflow_call:
+
+  env:
+    GH_TOKEN: ${{ secrets.PAT }}
   
   jobs:
     check-pr-title:
@@ -21,23 +24,38 @@
             repository: vyos/.github
             path: reusable-actions
   
-        - name: Install the requests library
-          run: pip3 install requests
-  
         - name: Check the PR title
           timeout-minutes: 2
-          id: check_pr_title
           run: |
-            output=$(./reusable-actions/scripts/check-pr-title-and-commit-messages.py '${{ github.event.pull_request.url }}' 2>&1 || true)
-            if [ -n "$output" ]; then
-              echo "$output"
-              echo "error_message=${output//$'\n'/. }" >> $GITHUB_ENV         
-              exit 1
+            source_pr_title=$(gh pr view "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --json title -q .title)
+            if echo "$source_pr_title" | grep -Pq '^(([a-zA-Z0-9\-_.]+:\s)?)T\d+:\s+[^\s]+.*'; then
+                echo "PR title '$source_pr_title' is valid."
+                echo "error_message=No issues in PR Title / Commit Title" >> $GITHUB_ENV
             else
-              #echo "error_message=" >> $GITHUB_ENV
-              echo "error_message=No issues in PR Title / Commit Title" >> $GITHUB_ENV
+                echo "PR title '$source_pr_title' does not match the required format!"
+                echo "error_message=PR title does not match the required format" >> $GITHUB_ENV
+                echo "Valid title example: T99999: make IPsec secure"
+                exit 1
             fi
-          shell: bash
+        
+        - name: Check commit messages
+          timeout-minutes: 2
+          run: |
+            # Fetch commit messages
+            commits=$(gh pr view "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --json commits -q '.commits[].messageHeadline')
+            # Iterate over each commit message
+            echo "$commits" | while IFS= read -r commit_message; do
+              if echo "$commit_message" | grep -Pq '^(([a-zA-Z0-9\-_.]+:\s)?)T\d+:\s+[^\s]+.*'; then
+                  echo "Commit message '$commit_message' is valid."
+              else
+                  echo "Commit message '$commit_message' does not match the required format!"
+                  echo "error_message=PR title does not match the required format" >> $GITHUB_ENV
+                  echo "Valid commit message example: T99999: make IPsec secure"
+                  exit 1
+              fi
+            done
+            echo "All commit messages are valid."
+            echo "error_message=No issues in PR Title / Commit Title" >> $GITHUB_ENV
 
         - name: Add PR comment
           if: always()
