@@ -26,7 +26,8 @@ jobs:
               repo: context.repo.repo,
               pull_number: prNumber,
             });
-            const changedFiles = files.map(file => file.filename).filter(file => file.startsWith('src/migration-scripts/'));
+            const changedFiles = files.map(file => file.filename).filter(file => file.startsWith('src/'));
+            console.log("Changed files:", changedFiles);
             core.setOutput('result', changedFiles.join(','));
 
       - name: Print changed files
@@ -38,8 +39,7 @@ jobs:
         run: |
           set +e
           py_files=$(echo ${{ steps.changed-files.outputs.result }} | tr ',' ' ')
-          echo "py_files: $py_files"
-          output=$(pylint --disable=all --enable=W0611 $py_files)    
+          output=$(pylint --disable=all --enable=W0611 $py_files)
           exit_code=$?
           set -e
           echo "$output"
