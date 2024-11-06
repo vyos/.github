@@ -27,8 +27,9 @@ jobs:
               pull_number: prNumber,
             });
             const changedFiles = files.map(file => file.filename).filter(file => file.startsWith('src/migration-scripts/'));
-            console.log("Changed files:", changedFiles);
-            return { result: changedFiles.join(',') };
+            core.setOutput('result', changedFiles.join(','));
+            # console.log("Changed files:", changedFiles);
+            # return { result: changedFiles.join(',') };
 
       - name: Print changed files
         run: |
@@ -38,7 +39,7 @@ jobs:
         if: steps.changed-files.outputs.result != ''
         run: |
           set +e
-          py_files=$(echo ${{ steps.changed-files.outputs.result }} | tr ',' ' ' | tr -d '{}:result')
+          py_files=$(echo ${{ steps.changed-files.outputs.result }} | tr ',' ' ')
           echo "py_files: $py_files"
           output=$(pylint --disable=all --enable=W0611 $py_files)    
           exit_code=$?
