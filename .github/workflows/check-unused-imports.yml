@@ -28,7 +28,7 @@ jobs:
             });
             const changedFiles = files.map(file => file.filename).filter(file => file.startsWith('src/'));
             console.log("Changed files:", changedFiles);
-            core.setOutput('result', changedFiles.join(','));
+            return { result: changedFiles.join(',') };
 
       - name: Print changed files
         run: |
@@ -38,7 +38,7 @@ jobs:
         if: steps.changed-files.outputs.result != ''
         run: |
           set +e
-          py_files=$(echo ${{ steps.changed-files.outputs.result }} | tr ',' ' ')
+          py_files=$(echo ${{ steps.changed-files.outputs.result }} | sed 's/{result://; s/}//' | tr ',' ' ')
           output=$(pylint --disable=all --enable=W0611 $py_files)
           exit_code=$?
           set -e
