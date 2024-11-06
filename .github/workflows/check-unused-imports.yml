@@ -28,8 +28,6 @@ jobs:
             });
             const changedFiles = files.map(file => file.filename).filter(file => file.startsWith('src/migration-scripts/'));
             core.setOutput('result', changedFiles.join(','));
-            # console.log("Changed files:", changedFiles);
-            # return { result: changedFiles.join(',') };
 
       - name: Print changed files
         run: |
