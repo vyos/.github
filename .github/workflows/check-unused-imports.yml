@@ -26,7 +26,8 @@ jobs:
               repo: context.repo.repo,
               pull_number: prNumber,
             });
-            const changedFiles = files.map(file => file.filename).filter(file => file.startsWith('src/'));
+            const checkFilePath = 'src/migration-scripts/';
+            const changedFiles = files.map(file => file.filename).filter(file => file.startsWith(checkFilePath));
             console.log("Changed files:", changedFiles);
             return { result: changedFiles.join(',') };
 
@@ -60,3 +61,12 @@ jobs:
           fi
           echo "WORKFLOW_MESSAGE=${message}. Please refer the [workflow run]($run_url)" >> $GITHUB_ENV
           exit $exit_code
+
+      - name: Add PR comment
+        if: ${{ always() && env.WORKFLOW_MESSAGE != '' }}
+        uses: mshick/add-pr-comment@v2
+        with:
+          message: |-
+            ${{ env.WORKFLOW_MESSAGE }}
+          message-id: "UNUSED_IMPORTS_VALIDATION"
+          allow-repeats: false
