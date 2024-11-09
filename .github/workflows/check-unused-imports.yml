@@ -1,6 +1,12 @@
 name: Check for unused imports using Pylint 
 on:
   workflow_call:
+    inputs:
+      check_file_path:
+        description: 'Path to check for unused py imports'
+        required: false
+        default: 'src/migration-scripts/'
+        type: string
 jobs:
   check-unused-imports:
     runs-on: ubuntu-latest
@@ -26,7 +32,7 @@ jobs:
               repo: context.repo.repo,
               pull_number: prNumber,
             });
-            const checkFilePath = 'src/migration-scripts/';
+            const checkFilePath = '${{ inputs.check_file_path }}';
             const changedFiles = files.map(file => file.filename).filter(file => file.startsWith(checkFilePath));
             console.log("Changed files:", changedFiles);
             return { result: changedFiles.join(',') };
