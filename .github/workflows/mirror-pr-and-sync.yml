@@ -5,7 +5,7 @@ on:
       pr_number:
         description: 'Source repo PR Number'
         required: true
-        type: number
+        type: string
       sync_branch:
         description: 'branch to sync'
         required: true
