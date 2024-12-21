@@ -2,11 +2,6 @@ name: Cleanup pr mirror branch
 
 on:
   workflow_call:
-    inputs:
-      branch:
-        description: 'Branch to delete'
-        required: true
-        type: string
 
 run-name: Cleanup branch ${{ github.event.pull_request.head.ref }}
 
