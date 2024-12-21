@@ -14,9 +14,6 @@ jobs:
   trigger-mirror-pr-repo-sync:
     if: ${{ github.repository_owner == 'vyos' }}
     runs-on: ubuntu-latest
-    permissions:
-      pull-requests: write
-      contents: write
 
     steps:
     - name: Bullfrog Secure Runner
