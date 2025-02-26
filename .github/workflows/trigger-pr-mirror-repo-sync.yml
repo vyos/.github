@@ -20,6 +20,11 @@ jobs:
       uses: bullfrogsec/bullfrog@v0
       with:
         egress-policy: audit
+  
+    - name: Add mirror-initiated label
+      shell: bash
+      run: |
+        gh issue edit ${{ github.event.pull_request.number }} --repo $GITHUB_REPOSITORY --add-label "mirror-initiated"
 
     - name: Trigger repo sync
       shell: bash
