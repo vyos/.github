@@ -24,7 +24,12 @@ jobs:
     - name: Add mirror-initiated label
       shell: bash
       run: |
-        gh issue edit ${{ github.event.pull_request.number }} --repo $GITHUB_REPOSITORY --add-label "mirror-initiated"
+        label_name="mirror-initiated"
+        if ! gh label list --repo "$GITHUB_REPOSITORY" | grep -q "^$label_name\b"; then
+            echo "Label '$label_name' not found in repo. Creating it..."
+            gh label create "$label_name" --color "ff0000" --description "This PR initiated for mirror sync workflow" --repo "$GITHUB_REPOSITORY"
+        fi
+        gh issue edit ${{ github.event.pull_request.number }} --repo $GITHUB_REPOSITORY --add-label $label_name
 
     - name: Trigger repo sync
       shell: bash
