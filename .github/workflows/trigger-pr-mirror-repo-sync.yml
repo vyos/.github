@@ -37,9 +37,9 @@ jobs:
     - name: Trigger repo sync
       shell: bash
       run: |
-        echo "Triggering PR mirror sync workflow in target repo: $TARGET_REPO, sync branch: $SYNC_BRANCH, token: $GH_TOKEN"
+        echo "Triggering PR mirror sync workflow in target repo: ${{ env.TARGET_REPO }}, sync branch: ${{ env.SYNC_BRANCH }}, token: ${{ env.GH_TOKEN }}"
         curl -X POST \
           -H "Accept: application/vnd.github.everest-preview+json" \
-          -H "Authorization: Bearer $GH_TOKEN" \
-          https://api.github.com/repos/$TARGET_REPO/actions/workflows/mirror-pr-and-sync.yml/dispatches \
-          -d '{"ref":"$SYNC_BRANCH", "inputs": {"sync_branch": "$SYNC_BRANCH"}}'
+          -H "Authorization: Bearer ${{ env.GH_TOKEN }}" \
+          https://api.github.com/repos/${{ env.TARGET_REPO }}/actions/workflows/mirror-pr-and-sync.yml/dispatches \
+          -d '{"ref":"${{ env.SYNC_BRANCH }}", "inputs": {"sync_branch": "${{ env.SYNC_BRANCH }}"}}'
