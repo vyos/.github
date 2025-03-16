@@ -6,6 +6,9 @@ run-name: Trigger Mirror PR ${{ github.event.pull_request.number }} for ${{ gith
 
 env:
   GH_TOKEN: ${{ secrets.PAT }}
+  PR_NUMBER: ${{ github.event.pull_request.number }}
+  SYNC_BRANCH: ${{ github.event.pull_request.base.ref }}
+  TARGET_REPO:  ${{ secrets.REMOTE_OWNER }}/${{ secrets.REMOTE_REPO }}
 
 concurrency:
   group: trigger-pr-mirror-repo-sync-${{ github.event.pull_request.base.ref }}
@@ -29,15 +32,14 @@ jobs:
             echo "Label '$label_name' not found in repo. Creating it..."
             gh label create "$label_name" --color "ff0000" --description "This PR initiated for mirror sync workflow" --repo "$GITHUB_REPOSITORY"
         fi
-        gh issue edit ${{ github.event.pull_request.number }} --repo $GITHUB_REPOSITORY --add-label $label_name
+        gh issue edit $PR_NUMBER --repo $GITHUB_REPOSITORY --add-label $label_name
 
     - name: Trigger repo sync
       shell: bash
       run: |
-        echo "Triggering sync workflow for ${{ secrets.REMOTE_OWNER }}/${{ secrets.REMOTE_REPO }}"
-        echo "Triggering sync workflow with PAT ${{ secrets.PAT }}"
+        echo "Triggering PR mirror sync workflow in target repo: $TARGET_REPO, sync branch: $SYNC_BRANCH, token: $GH_TOKEN"
         curl -X POST \
           -H "Accept: application/vnd.github.everest-preview+json" \
-          -H "Authorization: Bearer ${{ secrets.PAT }}" \
-          https://api.github.com/repos/${{ secrets.REMOTE_OWNER }}/${{ secrets.REMOTE_REPO }}/actions/workflows/mirror-pr-and-sync.yml/dispatches \
-          -d '{"ref":"git-actions", "inputs": {"pr_number": "${{  github.event.pull_request.number }}", "sync_branch": "${{ github.event.pull_request.base.ref }}"}}'
+          -H "Authorization: Bearer $GH_TOKEN" \
+          https://api.github.com/repos/$TARGET_REPO/actions/workflows/mirror-pr-and-sync.yml/dispatches \
+          -d '{"ref":"$SYNC_BRANCH", "inputs": {"sync_branch": "$SYNC_BRANCH"}}'
