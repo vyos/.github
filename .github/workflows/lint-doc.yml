@@ -19,7 +19,7 @@ jobs:
       with:
         repository: vyos/.github
         path: reusable-workflows
-        ref: feature/T6349-reusable-workflows
+        ref: ${{ github.event.pull_request.base.ref }}
 
     - name: Get File Changes
       id: file_changes
