@@ -5,10 +5,14 @@ on:
 run-name: Trigger Mirror PR ${{ github.event.pull_request.number }} for ${{ github.event.pull_request.base.ref }} branch
 
 env:
-  GH_TOKEN: ${{ secrets.PAT }}
   PR_NUMBER: ${{ github.event.pull_request.number }}
   SYNC_BRANCH: ${{ github.event.pull_request.base.ref }}
   TARGET_REPO:  ${{ secrets.REMOTE_OWNER }}/${{ secrets.REMOTE_REPO }}
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
 
 concurrency:
   group: trigger-pr-mirror-repo-sync-${{ github.event.pull_request.base.ref }}
@@ -32,7 +36,9 @@ jobs:
             echo "Label '$label_name' not found in repo. Creating it..."
             gh label create "$label_name" --color "ff0000" --description "This PR initiated for mirror sync workflow" --repo "$GITHUB_REPOSITORY"
         fi
-        gh issue edit $PR_NUMBER --repo $GITHUB_REPOSITORY --add-label $label_name
+        gh issue edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --add-label "$label_name"
+      env:
+        GH_TOKEN: ${{ github.token }}
 
     - name: Trigger repo sync
       shell: bash
@@ -43,3 +49,6 @@ jobs:
           -H "Authorization: Bearer ${{ env.GH_TOKEN }}" \
           https://api.github.com/repos/${{ env.TARGET_REPO }}/actions/workflows/mirror-pr-and-sync.yml/dispatches \
           -d '{"ref":"${{ env.SYNC_BRANCH }}", "inputs": {"sync_branch": "${{ env.SYNC_BRANCH }}"}}'
+      env:
+        GH_TOKEN: ${{ secrets.PAT }}
+
