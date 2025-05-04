@@ -21,13 +21,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PR_NUMBER=${{ github.event.pull_request.number }}
-          echo "Waiting for GitHub to compute mergeability for PR #$PR_NUMBER..."
+          REPO=${{ github.repository }}
+          echo "Waiting for GitHub to compute mergeability for PR #$PR_NUMBER in $REPO..."
       
           for i in {1..10}; do
-            sleep 5  # wait 5 seconds per attempt
-            MERGEABLE=$(gh pr view "$PR_NUMBER" --json mergeable --jq '.mergeable')
+            sleep 5
+            MERGEABLE=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json mergeable --jq '.mergeable')
             echo "Attempt $i: mergeable = $MERGEABLE"
-            
+      
             if [[ "$MERGEABLE" != "null" ]]; then
               echo "Mergeability is now computed: $MERGEABLE"
               break
