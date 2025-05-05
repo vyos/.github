@@ -15,6 +15,31 @@ jobs:
         with:
           egress-policy: audit
 
+      - name: Wait for GitHub to calculate mergeability
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          REPO=${{ github.repository }}
+          echo "Waiting for GitHub to compute mergeability for PR #$PR_NUMBER in $REPO..."
+      
+          for i in {1..10}; do
+            sleep 5
+            MERGEABLE=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json mergeable --jq '.mergeable')
+            echo "Attempt $i: mergeable = $MERGEABLE"
+      
+            if [[ "$MERGEABLE" != "null" ]]; then
+              echo "Mergeability is now computed: $MERGEABLE"
+              break
+            fi
+      
+            if [[ $i -eq 10 ]]; then
+              echo "Timeout waiting for mergeability to be computed"
+              exit 1
+            fi
+          done
+
       - name: check if PRs are dirty
         uses: eps1lon/actions-label-merge-conflict@v3
         with:
