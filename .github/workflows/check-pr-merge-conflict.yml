@@ -77,7 +77,7 @@ jobs:
 
             if [[ "$HAD_CONFLICT_LABEL" == "true" ]]; then
               echo "💬 Posting 'conflicts resolved' comment..."
-              gh pr comment "$PR_NUMBER" --body "✅ **Conflicts have been resolved.** $COMMENT_ON_RESOLUTION"
+              gh pr comment "$PR_NUMBER" --body "✅ **Conflicts Resolved.** $COMMENT_ON_RESOLUTION"
             fi
           else
             echo "❌ PR has merge conflicts — adding '$CONFLICT_LABEL' label."
@@ -90,5 +90,5 @@ jobs:
             gh pr edit "$PR_NUMBER" --remove-label "$REMOVE_LABEL_ON_CONFLICT" || true
 
             echo "💬 Posting 'has conflicts' comment..."
-            gh pr comment "$PR_NUMBER" --body "❌ **This pull request has conflicts.** $COMMENT_ON_CONFLICT"
+            gh pr comment "$PR_NUMBER" --body "❌ **Conflicts Found.** $COMMENT_ON_CONFLICT"
           fi
