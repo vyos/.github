@@ -15,36 +15,67 @@ jobs:
         with:
           egress-policy: audit
 
-      - name: Wait for GitHub to calculate mergeability
-        shell: bash
+      - name: Checkout PR and base branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Ensure full history for merge operations
+
+      - name: Fetch base and head branches
+        run: |
+          git fetch origin ${{ github.base_ref }} ${{ github.head_ref }}
+
+      - name: Attempt merge using Git (show output)
+        id: merge_check
+        run: |
+          echo "Checking merge of '${{ github.head_ref }}' into '${{ github.base_ref }}'..."
+          git checkout -B merge-base origin/${{ github.base_ref }}
+          if git merge --no-commit --no-ff origin/${{ github.head_ref }}; then
+            echo "mergeable=true" >> $GITHUB_OUTPUT
+            git merge --abort
+          else
+            echo "mergeable=false" >> $GITHUB_OUTPUT
+            git merge --abort
+          fi
+
+      - name: Check if 'conflict' label exists
+        id: label_check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PR_NUMBER=${{ github.event.pull_request.number }}
-          REPO=${{ github.repository }}
-          echo "Waiting for GitHub to compute mergeability for PR #$PR_NUMBER in $REPO..."
-      
-          for i in {1..10}; do
-            sleep 5
-            MERGEABLE=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json mergeable --jq '.mergeable')
-            echo "Attempt $i: mergeable = $MERGEABLE"
-      
-            if [[ "$MERGEABLE" != "null" ]]; then
-              echo "Mergeability is now computed: $MERGEABLE"
-              break
-            fi
-      
-            if [[ $i -eq 10 ]]; then
-              echo "Timeout waiting for mergeability to be computed"
-              exit 1
-            fi
-          done
+          LABEL="conflict"
+          echo "🔍 Checking if PR #$PR_NUMBER has the '$LABEL' label using jq..."
+          LABEL_EXISTS=$(gh pr view "$PR_NUMBER" --json labels | jq -r --arg label "$LABEL" '.labels[].name | select(. == $label)' | wc -l)
 
-      - name: check if PRs are dirty
-        uses: eps1lon/actions-label-merge-conflict@v3
-        with:
-          dirtyLabel: "conflicts"
-          removeOnDirtyLabel: "state: conflict resolved"
-          repoToken: "${{ secrets.GITHUB_TOKEN }}"
-          commentOnDirty: "This pull request has conflicts, please resolve those before we can evaluate the pull request."
-          commentOnClean: "Conflicts have been resolved. A maintainer will review the pull request shortly."
+          if [[ "$LABEL_EXISTS" -gt 0 ]]; then
+            echo "has_conflict_label=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_conflict_label=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Add or remove conflict label based on mergeability
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          MERGEABLE="${{ steps.merge_check.outputs.mergeable }}"
+          HAD_CONFLICT_LABEL="${{ steps.label_check.outputs.has_conflict_label }}"
+          LABEL="conflict"
+          REMOVE_LABEL_ON_CONFLICT="state: conflict resolved"
+
+          if [[ "$MERGEABLE" == "true" ]]; then
+            echo "✅ PR is mergeable — removing '$LABEL' label if it exists."
+            gh pr edit "$PR_NUMBER" --remove-label "$LABEL" || true
+
+            if [[ "$HAD_CONFLICT_LABEL" == "true" ]]; then
+              echo "💬 Posting 'conflicts resolved' comment..."
+              gh pr comment "$PR_NUMBER" --body "✅ **Conflicts have been resolved.** A maintainer will review the pull request shortly."
+            fi
+          else
+            echo "❌ PR has merge conflicts — adding '$LABEL' label."
+            gh pr edit "$PR_NUMBER" --add-label "$LABEL"
+            gh pr edit "$PR_NUMBER" --remove-label "$REMOVE_LABEL_ON_CONFLICT" || true
+
+            echo "💬 Posting 'has conflicts' comment..."
+            gh pr comment "$PR_NUMBER" --body "❌ **This pull request has conflicts.** Please resolve them before we can evaluate the pull request."
+          fi
