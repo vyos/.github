@@ -9,6 +9,11 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+    env:
+      CONFLICT_LABEL: "conflicts"
+      REMOVE_LABEL_ON_CONFLICT: "state: conflict resolved"
+      COMMENT_ON_CONFLICT: "This pull request has conflicts. Please resolve them before we can evaluate the pull request."
+      COMMENT_ON_RESOLUTION: "Conflicts have been resolved. A maintainer will review the pull request shortly."
     steps:
       - name: Bullfrog Secure Runner
         uses: bullfrogsec/bullfrog@v0
@@ -31,6 +36,7 @@ jobs:
           git fetch origin ${{ github.head_ref }}
 
       - name: Check for merge conflicts
+        id: merge_check
         run: |
           echo "Checking merge of '${{ github.head_ref }}' into '${{ github.base_ref }}'..."
           git checkout -B merge-base origin/${{ github.base_ref }}
@@ -43,14 +49,13 @@ jobs:
           fi
 
       - name: Check if 'conflict' label exists
-        id: label_check
+        id: conflict_label_check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PR_NUMBER=${{ github.event.pull_request.number }}
-          LABEL="conflict"
-          echo "🔍 Checking if PR #$PR_NUMBER has the '$LABEL' label using jq..."
-          LABEL_EXISTS=$(gh pr view "$PR_NUMBER" --json labels | jq -r --arg label "$LABEL" '.labels[].name | select(. == $label)' | wc -l)
+          echo "🔍 Checking if PR #$PR_NUMBER has the '$CONFLICT_LABEL' label using jq..."
+          LABEL_EXISTS=$(gh pr view "$PR_NUMBER" --json labels | jq -r --arg label "$CONFLICT_LABEL" '.labels[].name | select(. == $label)' | wc -l)
 
           if [[ "$LABEL_EXISTS" -gt 0 ]]; then
             echo "has_conflict_label=true" >> "$GITHUB_OUTPUT"
@@ -64,23 +69,21 @@ jobs:
         run: |
           PR_NUMBER=${{ github.event.pull_request.number }}
           MERGEABLE="${{ steps.merge_check.outputs.mergeable }}"
-          HAD_CONFLICT_LABEL="${{ steps.label_check.outputs.has_conflict_label }}"
-          LABEL="conflict"
-          REMOVE_LABEL_ON_CONFLICT="state: conflict resolved"
-
+          HAD_CONFLICT_LABEL="${{ steps.conflict_label_check.outputs.has_conflict_label }}"
+          
           if [[ "$MERGEABLE" == "true" ]]; then
-            echo "✅ PR is mergeable — removing '$LABEL' label if it exists."
-            gh pr edit "$PR_NUMBER" --remove-label "$LABEL" || true
+            echo "✅ PR is mergeable — removing '$CONFLICT_LABEL' label if it exists."
+            gh pr edit "$PR_NUMBER" --remove-label "$CONFLICT_LABEL" || true
 
             if [[ "$HAD_CONFLICT_LABEL" == "true" ]]; then
               echo "💬 Posting 'conflicts resolved' comment..."
-              gh pr comment "$PR_NUMBER" --body "✅ **Conflicts have been resolved.** A maintainer will review the pull request shortly."
+              gh pr comment "$PR_NUMBER" --body "✅ **Conflicts have been resolved.** $COMMENT_ON_RESOLUTION"
             fi
           else
-            echo "❌ PR has merge conflicts — adding '$LABEL' label."
-            gh pr edit "$PR_NUMBER" --add-label "$LABEL"
+            echo "❌ PR has merge conflicts — adding '$CONFLICT_LABEL' label."
+            gh pr edit "$PR_NUMBER" --add-label "$CONFLICT_LABEL"
             gh pr edit "$PR_NUMBER" --remove-label "$REMOVE_LABEL_ON_CONFLICT" || true
 
             echo "💬 Posting 'has conflicts' comment..."
-            gh pr comment "$PR_NUMBER" --body "❌ **This pull request has conflicts.** Please resolve them before we can evaluate the pull request."
+            gh pr comment "$PR_NUMBER" --body "❌ **This pull request has conflicts.** $COMMENT_ON_CONFLICT"
           fi
