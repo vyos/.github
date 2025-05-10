@@ -81,6 +81,11 @@ jobs:
             fi
           else
             echo "❌ PR has merge conflicts — adding '$CONFLICT_LABEL' label."
+            if ! gh label list --json name | jq -e --arg label "$LABEL" '.[] | select(.name == $label)' > /dev/null; then
+              COLOR="d73a4a"  # red
+              DESCRIPTION="PR has merge conflicts"
+              gh label create "$CONFLICT_LABEL" --color "$COLOR" --description "$DESCRIPTION"
+            fi
             gh pr edit "$PR_NUMBER" --add-label "$CONFLICT_LABEL"
             gh pr edit "$PR_NUMBER" --remove-label "$REMOVE_LABEL_ON_CONFLICT" || true
 
