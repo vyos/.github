@@ -4,32 +4,34 @@ on:
   workflow_call:
 
 permissions:
-  actions: write      # Required to trigger workflows using gh workflow run
-  contents: read      # Needed for checking out code (optional but typical)
+  actions: write
+  contents: read
 
 jobs:
-  trigger-open-prs-conflict-checks:
+  get-open-prs:
     runs-on: ubuntu-latest
+    outputs:
+      pr_matrix: ${{ steps.set-matrix.outputs.pr_matrix }}
     steps:
-      - name: Checkout (optional, if using local scripts)
+      - name: Checkout (optional)
         uses: actions/checkout@v4
 
       - name: Get PRs targeting ${{ github.ref_name }}
-        id: get-prs
+        id: set-matrix
         run: |
           prs=$(gh pr list --state open --base "${GITHUB_REF_NAME}" --json number -q '.[].number')
-          prs_space_separated=$(echo "$prs" | xargs)
-          echo "PR_NUMBERS=$prs_space_separated" >> $GITHUB_ENV
+          prs_json=$(echo "$prs" | jq -R -s -c 'split("\n") | map(select(length > 0)) | map({"pr_number": .})')
+          echo "pr_matrix=$prs_json" >> $GITHUB_OUTPUT
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Trigger conflict-checker for each PR
-        run: |
-          for pr in $PR_NUMBERS; do
-            # Random sleep to avoid hitting API limits
-            sleep $((RANDOM % 10 + 1))
-            echo "Dispatching conflict-checker for PR #$pr"
-            gh workflow run check-pr-conflicts-dispatch.yml -f pr_number=$pr
-          done
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  check-pr-conflicts:
+    name: "Check PR #${{ matrix.pr_number }} for conflicts"
+    needs: get-open-prs
+    strategy:
+      matrix:
+        include: ${{ fromJson(needs.get-open-prs.outputs.pr_matrix) }}
+    uses: vyos/.github/.github/workflows/check-pr-merge-conflict.yml@T7445-open-prs-conflict-check
+    with:
+      pr_number: ${{ matrix.pr_number }}
+    secrets: inherit
