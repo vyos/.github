@@ -20,6 +20,13 @@ jobs:
       COMMENT_ON_CONFLICT: "This pull request has conflicts. Please resolve them before we can evaluate the pull request."
       COMMENT_ON_RESOLUTION: "Conflicts have been resolved. A maintainer will review the pull request shortly."
     steps:
+      - name: Optional delay when triggered with pr_number
+        if: inputs.pr_number != ''
+        run: |
+          delay=$(( ( RANDOM % 10 ) + 5 ))
+          echo "Running in matrix mode. Sleeping for $delay seconds..."
+          sleep $delay
+
       - name: Bullfrog Secure Runner
         uses: bullfrogsec/bullfrog@v0
         with:
