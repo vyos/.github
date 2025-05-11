@@ -1,9 +1,15 @@
 name: "Check PR merge conflicts"
 on:
   workflow_call:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull Request Number"
+        required: true
+        type: number
 
 jobs:
-  pr-conflict-Check:
+  pr-conflict-check:
     name: 'Check PR status: conflicts and resolution'
     runs-on: ubuntu-latest
     permissions:
@@ -23,24 +29,45 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Ensure full history for merge operations
+          fetch-depth: 0
+
+      - name: Determine PR number and branches
+        id: pr_info
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            PR_NUMBER=${{ inputs.pr_number }}
+            echo "Triggered manually for PR #$PR_NUMBER"
+            pr_json=$(gh pr view "$PR_NUMBER" --json baseRefName,headRefName --jq '{base: .baseRefName, head: .headRefName}')
+            BASE=$(echo $pr_json | jq -r .base)
+            HEAD=$(echo $pr_json | jq -r .head)
+          else
+            PR_NUMBER=${{ github.event.pull_request.number }}
+            BASE=${{ github.event.pull_request.base.ref }}
+            HEAD=${{ github.event.pull_request.head.ref }}
+            echo "Triggered by PR event for PR #$PR_NUMBER"
+          fi
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          echo "base_branch=$BASE" >> $GITHUB_OUTPUT
+          echo "head_branch=$HEAD" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set Git user identity
         run: |
           git config --global user.email "actions@github.com"
           git config --global user.name "GitHub Actions"
 
-      - name: Fetch base and PR branches
+      - name: Fetch base and head branches
         run: |
-          git fetch origin ${{ github.base_ref }}
-          git fetch origin ${{ github.head_ref }}
+          git fetch origin ${{ steps.pr_info.outputs.base_branch }}
+          git fetch origin ${{ steps.pr_info.outputs.head_branch }}
 
       - name: Check for merge conflicts
         id: merge_check
         run: |
-          echo "Checking merge of '${{ github.head_ref }}' into '${{ github.base_ref }}'..."
-          git checkout -B merge-base origin/${{ github.base_ref }}
-          if git merge --no-commit --no-ff origin/${{ github.head_ref }}; then
+          echo "Checking merge of '${{ steps.pr_info.outputs.head_branch }}' into '${{ steps.pr_info.outputs.base_branch }}'..."
+          git checkout -B merge-base origin/${{ steps.pr_info.outputs.base_branch }}
+          if git merge --no-commit --no-ff origin/${{ steps.pr_info.outputs.head_branch }}; then
             echo "mergeable=true" >> $GITHUB_OUTPUT
             git merge --abort
           else
@@ -48,29 +75,21 @@ jobs:
             git merge --abort
           fi
 
-      - name: Check if 'conflict' label exists
+      - name: Check if conflict label exists
         id: conflict_label_check
+        run: |
+          PR_NUMBER=${{ steps.pr_info.outputs.pr_number }}
+          LABEL_EXISTS=$(gh pr view "$PR_NUMBER" --json labels | jq -r --arg label "${{ env.CONFLICT_LABEL }}" '.labels[].name | select(. == $label)' | wc -l)
+          [[ "$LABEL_EXISTS" -gt 0 ]] && echo "has_conflict_label=true" >> $GITHUB_OUTPUT || echo "has_conflict_label=false" >> $GITHUB_OUTPUT
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          PR_NUMBER=${{ github.event.pull_request.number }}
-          echo "🔍 Checking if PR #$PR_NUMBER has the '$CONFLICT_LABEL' label using jq..."
-          LABEL_EXISTS=$(gh pr view "$PR_NUMBER" --json labels | jq -r --arg label "$CONFLICT_LABEL" '.labels[].name | select(. == $label)' | wc -l)
-
-          if [[ "$LABEL_EXISTS" -gt 0 ]]; then
-            echo "has_conflict_label=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_conflict_label=false" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Add or remove conflict label based on mergeability
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          PR_NUMBER=${{ github.event.pull_request.number }}
+          PR_NUMBER=${{ steps.pr_info.outputs.pr_number }}
           MERGEABLE="${{ steps.merge_check.outputs.mergeable }}"
           HAD_CONFLICT_LABEL="${{ steps.conflict_label_check.outputs.has_conflict_label }}"
-          
+
           if [[ "$MERGEABLE" == "true" ]]; then
             echo "✅ PR is mergeable — removing '$CONFLICT_LABEL' label if it exists."
             gh pr edit "$PR_NUMBER" --remove-label "$CONFLICT_LABEL" || true
@@ -81,14 +100,13 @@ jobs:
             fi
           else
             echo "❌ PR has merge conflicts — adding '$CONFLICT_LABEL' label."
-            if ! gh label list --json name | jq -e --arg label "$LABEL" '.[] | select(.name == $label)' > /dev/null; then
-              COLOR="d73a4a"  # red
-              DESCRIPTION="PR has merge conflicts"
-              gh label create "$CONFLICT_LABEL" --color "$COLOR" --description "$DESCRIPTION"
+            if ! gh label list --json name | jq -e --arg label "$CONFLICT_LABEL" '.[] | select(.name == $label)' > /dev/null; then
+              gh label create "$CONFLICT_LABEL" --color "d73a4a" --description "PR has merge conflicts"
             fi
             gh pr edit "$PR_NUMBER" --add-label "$CONFLICT_LABEL"
             gh pr edit "$PR_NUMBER" --remove-label "$REMOVE_LABEL_ON_CONFLICT" || true
-
             echo "💬 Posting 'has conflicts' comment..."
             gh pr comment "$PR_NUMBER" --body "❌ **Conflicts Found.** $COMMENT_ON_CONFLICT"
           fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
