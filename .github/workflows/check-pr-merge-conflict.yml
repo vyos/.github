@@ -41,6 +41,7 @@ jobs:
             BASE=$(echo $pr_json | jq -r .base)
             HEAD=$(echo $pr_json | jq -r .head)
           else
+            echo "Triggered via pull_request event"
             PR_NUMBER=${{ github.event.pull_request.number }}
             BASE=${{ github.event.pull_request.base.ref }}
             HEAD=${{ github.event.pull_request.head.ref }}

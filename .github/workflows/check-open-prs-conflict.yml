@@ -26,8 +26,10 @@ jobs:
       - name: Trigger conflict-checker for each PR
         run: |
           for pr in $PR_NUMBERS; do
+            # Random sleep to avoid hitting API limits
+            sleep $((RANDOM % 10 + 1))
             echo "Dispatching conflict-checker for PR #$pr"
-            gh workflow run check-pr-merge-conflict.yml -f pr_number=$pr
+            gh workflow run check-pr-conflicts.yml -f pr_number=$pr
           done
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
