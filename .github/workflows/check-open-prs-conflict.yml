@@ -19,7 +19,8 @@ jobs:
         id: get-prs
         run: |
           prs=$(gh pr list --state open --base "${GITHUB_REF_NAME}" --json number -q '.[].number')
-          echo "PR_NUMBERS=${prs}" >> $GITHUB_ENV
+          prs_space_separated=$(echo "$prs" | xargs)
+          echo "PR_NUMBERS=$prs_space_separated" >> $GITHUB_ENV
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
