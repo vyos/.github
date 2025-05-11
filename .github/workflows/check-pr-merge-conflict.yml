@@ -6,7 +6,7 @@ on:
       pr_number:
         description: "Pull Request Number"
         required: true
-        type: number
+        type: string
 
 jobs:
   pr-conflict-check:
@@ -35,7 +35,7 @@ jobs:
         id: pr_info
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            PR_NUMBER=${{ inputs.pr_number }}
+            PR_NUMBER="${{ inputs.pr_number }}"
             echo "Triggered manually for PR #$PR_NUMBER"
             pr_json=$(gh pr view "$PR_NUMBER" --json baseRefName,headRefName --jq '{base: .baseRefName, head: .headRefName}')
             BASE=$(echo $pr_json | jq -r .base)
