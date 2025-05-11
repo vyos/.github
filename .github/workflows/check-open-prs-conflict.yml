@@ -1,0 +1,32 @@
+name: "Check Open PRs conflicts"
+
+on:
+  push:
+    branches:
+      - current
+      - sagitta
+      - circinus
+
+jobs:
+  trigger-open-prs-conflict-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (optional, if using local scripts)
+        uses: actions/checkout@v4
+
+      - name: Get PRs targeting ${{ github.ref_name }}
+        id: get-prs
+        run: |
+          prs=$(gh pr list --state open --base "${GITHUB_REF_NAME}" --json number -q '.[].number')
+          echo "PR_NUMBERS=${prs}" >> $GITHUB_ENV
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Trigger conflict-checker for each PR
+        run: |
+          for pr in $PR_NUMBERS; do
+            echo "Dispatching conflict-checker for PR #$pr"
+            gh workflow run check-pr-merge-conflict.yml -f pr_number=$pr
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
