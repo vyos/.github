@@ -9,7 +9,7 @@ on:
 
 jobs:
   pr-conflict-check:
-    name: 'Check PR status: conflicts and resolution'
+    name: "Check PR #${{ inputs.pr_number != '' && inputs.pr_number || github.event.pull_request.number }}"
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -33,19 +33,19 @@ jobs:
       - name: Determine PR number and branches
         id: pr_info
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          if [[ -n "${{ inputs.pr_number }}" ]]; then
             PR_NUMBER="${{ inputs.pr_number }}"
-            echo "Triggered manually for PR #$PR_NUMBER"
+            echo "PR number provided as input: #$PR_NUMBER"
             pr_json=$(gh pr view "$PR_NUMBER" --json baseRefName,headRefName --jq '{base: .baseRefName, head: .headRefName}')
-            BASE=$(echo $pr_json | jq -r .base)
-            HEAD=$(echo $pr_json | jq -r .head)
+            BASE=$(echo "$pr_json" | jq -r .base)
+            HEAD=$(echo "$pr_json" | jq -r .head)
           else
-            echo "Triggered via pull_request event"
-            PR_NUMBER=${{ github.event.pull_request.number }}
-            BASE=${{ github.event.pull_request.base.ref }}
-            HEAD=${{ github.event.pull_request.head.ref }}
-            echo "Triggered by PR event for PR #$PR_NUMBER"
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+            BASE="${{ github.event.pull_request.base.ref }}"
+            HEAD="${{ github.event.pull_request.head.ref }}"
+            echo "PR number from event: #$PR_NUMBER"
           fi
+
           echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
           echo "base_branch=$BASE" >> $GITHUB_OUTPUT
           echo "head_branch=$HEAD" >> $GITHUB_OUTPUT

@@ -26,7 +26,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   check-pr-conflicts:
-    name: "Check PR #${{ matrix.pr_number }} for conflicts"
     needs: get-open-prs
     strategy:
       matrix:
