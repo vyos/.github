@@ -1,11 +1,12 @@
 name: "Check Open PRs conflicts"
 
 on:
-  push:
-    branches:
-      - current
-      - sagitta
-      - circinus
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  actions: write      # Required to trigger workflows using gh workflow run
+  contents: read      # Needed for checking out code (optional but typical)
 
 jobs:
   trigger-open-prs-conflict-checks:
