@@ -11,7 +11,7 @@ jobs:
       contents: read
     steps:
       - name: Bullfrog Secure Runner
-        uses: bullfrogsec/bullfrog@v0
+        uses: bullfrogsec/bullfrog@v0.8.4
         with:
           egress-policy: audit
 
