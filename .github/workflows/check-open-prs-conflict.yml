@@ -13,7 +13,7 @@ jobs:
     outputs:
       pr_matrix: ${{ steps.set-matrix.outputs.pr_matrix }}
     steps:
-      - name: Checkout (optional)
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Get PRs targeting ${{ github.ref_name }}
