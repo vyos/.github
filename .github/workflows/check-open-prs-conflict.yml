@@ -1,0 +1,36 @@
+name: "Check Open PRs conflicts"
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  get-open-prs:
+    runs-on: ubuntu-latest
+    outputs:
+      pr_matrix: ${{ steps.set-matrix.outputs.pr_matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get PRs targeting ${{ github.ref_name }}
+        id: set-matrix
+        run: |
+          prs=$(gh pr list --state open --base "${GITHUB_REF_NAME}" --json number -q '.[].number')
+          prs_json=$(echo "$prs" | jq -R -s -c 'split("\n") | map(select(length > 0)) | map({"pr_number": .})')
+          echo "pr_matrix=$prs_json" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  check-pr-conflicts:
+    needs: get-open-prs
+    strategy:
+      matrix:
+        include: ${{ fromJson(needs.get-open-prs.outputs.pr_matrix) }}
+    uses: vyos/.github/.github/workflows/check-pr-merge-conflict.yml@T7445-open-prs-conflict-check
+    with:
+      pr_number: ${{ matrix.pr_number }}
+    secrets: inherit
