@@ -28,7 +28,8 @@ jobs:
           sleep $delay
 
       - name: Bullfrog Secure Runner
-        uses: bullfrogsec/bullfrog@v0
+        continue-on-error: true
+        uses: bullfrogsec/bullfrog@v0.8.4
         with:
           egress-policy: audit
 
