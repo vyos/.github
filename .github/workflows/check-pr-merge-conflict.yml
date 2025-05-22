@@ -44,19 +44,21 @@ jobs:
           if [[ -n "${{ inputs.pr_number }}" ]]; then
             PR_NUMBER="${{ inputs.pr_number }}"
             echo "PR number provided as input: #$PR_NUMBER"
-            pr_json=$(gh pr view "$PR_NUMBER" --json baseRefName,headRefName --jq '{base: .baseRefName, head: .headRefName}')
+            pr_json=$(gh pr view "$PR_NUMBER" --json baseRefName,headRefName,headRepository --jq '{base: .baseRefName, head: .headRefName, repo: .headRepository.fullName}')
             BASE=$(echo "$pr_json" | jq -r .base)
             HEAD=$(echo "$pr_json" | jq -r .head)
+            HEAD_REPO=$(echo "$pr_json" | jq -r .repo)
           else
             PR_NUMBER="${{ github.event.pull_request.number }}"
             BASE="${{ github.event.pull_request.base.ref }}"
             HEAD="${{ github.event.pull_request.head.ref }}"
-            echo "PR number from event: #$PR_NUMBER"
+            HEAD_REPO="${{ github.event.pull_request.head.repo.full_name }}"
           fi
 
           echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
           echo "base_branch=$BASE" >> $GITHUB_OUTPUT
           echo "head_branch=$HEAD" >> $GITHUB_OUTPUT
+          echo "head_repo=$HEAD_REPO" >> $GITHUB_OUTPUT
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -68,7 +70,14 @@ jobs:
       - name: Fetch base and head branches
         run: |
           git fetch origin ${{ steps.pr_info.outputs.base_branch }}
-          git fetch origin ${{ steps.pr_info.outputs.head_branch }}
+          # Fetch head branch from fork or origin
+          if [[ "${{ github.repository }}" != "${{ steps.pr_info.outputs.head_repo }}" ]]; then
+            echo "Head is from a fork (${{steps.pr_info.outputs.head_repo }}), fetching via HTTPS..."
+            git fetch https://github.com/${{ steps.pr_info.outputs.head_repo }} ${{ steps.pr_info.outputs.head_branch }}
+          else
+            echo "Head is from the same repo, fetching from origin..."
+            git fetch origin ${{ steps.pr_info.outputs.head_branch }}
+          fi
 
       - name: Check for merge conflicts
         id: merge_check
