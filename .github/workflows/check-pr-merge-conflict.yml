@@ -82,14 +82,32 @@ jobs:
       - name: Check for merge conflicts
         id: merge_check
         run: |
-          echo "Checking merge of '${{ steps.pr_info.outputs.head_branch }}' into '${{ steps.pr_info.outputs.base_branch }}'..."
-          git checkout -B merge-base origin/${{ steps.pr_info.outputs.base_branch }}
-          if git merge --no-commit --no-ff origin/${{ steps.pr_info.outputs.head_branch }}; then
-            echo "mergeable=true" >> $GITHUB_OUTPUT
-            git merge --abort
+          BASE="${{ steps.pr_info.outputs.base_branch }}"
+          HEAD="${{ steps.pr_info.outputs.head_branch }}"
+          HEAD_REPO="${{ steps.pr_info.outputs.head_repo }}"
+
+          echo "Checking merge of '$HEAD' into '$BASE'..."
+
+          git checkout -B merge-base origin/$BASE
+
+          if [[ "${{ github.repository }}" != "$HEAD_REPO" ]]; then
+            echo "Head is from fork — merging FETCH_HEAD"
+            if git merge --no-commit --no-ff FETCH_HEAD; then
+              echo "mergeable=true" >> $GITHUB_OUTPUT
+              git merge --abort || true
+            else
+              echo "mergeable=false" >> $GITHUB_OUTPUT
+              git merge --abort || true
+            fi
           else
-            echo "mergeable=false" >> $GITHUB_OUTPUT
-            git merge --abort
+            echo "Head is from same repo — merging origin/$HEAD"
+            if git merge --no-commit --no-ff origin/$HEAD; then
+              echo "mergeable=true" >> $GITHUB_OUTPUT
+              git merge --abort || true
+            else
+              echo "mergeable=false" >> $GITHUB_OUTPUT
+              git merge --abort || true
+            fi
           fi
 
       - name: Check if conflict label exists
