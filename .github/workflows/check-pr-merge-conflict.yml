@@ -44,16 +44,31 @@ jobs:
           if [[ -n "${{ inputs.pr_number }}" ]]; then
             PR_NUMBER="${{ inputs.pr_number }}"
             echo "PR number provided as input: #$PR_NUMBER"
-            pr_json=$(gh pr view "$PR_NUMBER" --json baseRefName,headRefName,headRepository --jq '{base: .baseRefName, head: .headRefName, repo: .headRepository.fullName}')
-            BASE=$(echo "$pr_json" | jq -r .base)
-            HEAD=$(echo "$pr_json" | jq -r .head)
-            HEAD_REPO=$(echo "$pr_json" | jq -r .repo)
+
+            pr_json=$(gh pr view "$PR_NUMBER" --json baseRefName,headRefName,headRepository,headRepositoryOwner)
+
+            BASE=$(echo "$pr_json" | jq -r '.baseRefName')
+            HEAD=$(echo "$pr_json" | jq -r '.headRefName')
+
+            # Determine head repo: use fullName if available; fallback to owner/login + branch name
+            HEAD_REPO=$(echo "$pr_json" | jq -r '
+              if .headRepository != null and .headRepository.fullName != null then
+                .headRepository.fullName
+              else
+                .headRepositoryOwner.login + "/" + .headRefName
+              end
+            ')
           else
             PR_NUMBER="${{ github.event.pull_request.number }}"
             BASE="${{ github.event.pull_request.base.ref }}"
             HEAD="${{ github.event.pull_request.head.ref }}"
             HEAD_REPO="${{ github.event.pull_request.head.repo.full_name }}"
           fi
+
+          echo "pr_number=$PR_NUMBER"
+          echo "base_branch=$BASE"
+          echo "head_branch=$HEAD"
+          echo "head_repo=$HEAD_REPO"
 
           echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
           echo "base_branch=$BASE" >> $GITHUB_OUTPUT
