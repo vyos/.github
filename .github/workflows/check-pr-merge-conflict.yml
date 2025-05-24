@@ -50,14 +50,19 @@ jobs:
             BASE=$(echo "$pr_json" | jq -r '.baseRefName')
             HEAD=$(echo "$pr_json" | jq -r '.headRefName')
 
-            # Determine head repo: use fullName if available; fallback to owner/login + branch name
+            # Construct head repo as owner/name
             HEAD_REPO=$(echo "$pr_json" | jq -r '
-              if .headRepository != null and .headRepository.fullName != null then
-                .headRepository.fullName
+              if .headRepository != null and .headRepository.name != null and .headRepositoryOwner != null then
+                .headRepositoryOwner.login + "/" + .headRepository.name
               else
-                .headRepositoryOwner.login + "/" + .headRefName
+                empty
               end
             ')
+
+            if [[ -z "$HEAD_REPO" ]]; then
+              echo "❌ Could not determine head repository"
+              exit 1
+            fi
           else
             PR_NUMBER="${{ github.event.pull_request.number }}"
             BASE="${{ github.event.pull_request.base.ref }}"
