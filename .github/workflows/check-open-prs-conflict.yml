@@ -30,7 +30,7 @@ jobs:
     strategy:
       matrix:
         include: ${{ fromJson(needs.get-open-prs.outputs.pr_matrix) }}
-    uses: vyos/.github/.github/workflows/check-pr-merge-conflict.yml@T7445-conflict-open-prs-failure
+    uses: vyos/.github/.github/workflows/check-pr-merge-conflict.yml@current
     with:
       pr_number: ${{ matrix.pr_number }}
     secrets: inherit
