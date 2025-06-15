@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   trigger-mirror-pr-repo-sync:
-    if: ${{ github.repository_owner == 'vyos' }}
+    if: github.event.pull_request.merged == true && github.repository_owner == 'vyos'
     runs-on: ubuntu-latest
 
     steps:
@@ -28,18 +28,6 @@ jobs:
       uses: bullfrogsec/bullfrog@v0.8.4
       with:
         egress-policy: audit
-  
-    - name: Add mirror-initiated label
-      shell: bash
-      run: |
-        label_name="mirror-initiated"
-        if ! gh label list --repo "$GITHUB_REPOSITORY" | grep -q "^$label_name\b"; then
-            echo "Label '$label_name' not found in repo. Creating it..."
-            gh label create "$label_name" --color "ff0000" --description "This PR initiated for mirror sync workflow" --repo "$GITHUB_REPOSITORY"
-        fi
-        gh issue edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --add-label "$label_name"
-      env:
-        GH_TOKEN: ${{ github.token }}
 
     - name: Trigger repo sync
       shell: bash
