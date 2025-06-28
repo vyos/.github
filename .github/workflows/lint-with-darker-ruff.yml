@@ -41,6 +41,10 @@ jobs:
         run: |
           pip install git+https://github.com/akaihola/darker.git@master ruff>=0.0.292
 
+      - name: Install greylint
+        run: |
+          pip install graylint==2.0.0
+
       - name: Analyze Code
         run: |
           cd repo
@@ -50,4 +54,6 @@ jobs:
           else
             echo "No ruff.toml found in base repo"
           fi
-          darker -r origin/base --check --diff --lint "ruff check" --color .
+          # darker -r origin/base --check --diff --lint "ruff check" --color .
+          darker -r origin/base --check --diff --color .
+          graylint -L "ruff check" --revision origin/base
