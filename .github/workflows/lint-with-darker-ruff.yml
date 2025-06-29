@@ -27,7 +27,7 @@ jobs:
       - name: Setup python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11' 
+          python-version: '3.11'
 
       - name: Install darker ruff 
         run: |
@@ -38,6 +38,7 @@ jobs:
           pip install graylint==2.0.0
 
       - name: Run Darker
+        id: darker
         run: |
           if git ls-tree -r origin/base --name-only | grep -q '^pyproject.toml$'; then
             git checkout origin/base -- pyproject.toml
@@ -45,10 +46,12 @@ jobs:
           else
             echo "No pyproject.toml found in base repo"
           fi
-          darker -r origin/base --check --diff --color .
-        continue-on-error: true
+          if ! darker -r origin/base --check --diff --color .; then
+            echo "darker_failed=1" >> $GITHUB_OUTPUT
+          fi
 
       - name: Run Graylint
+        id: graylint
         run: |
           if git ls-tree -r origin/base --name-only | grep -q '^ruff.toml$'; then
             git checkout origin/base -- ruff.toml
@@ -56,5 +59,31 @@ jobs:
           else
             echo "No ruff.toml found in base repo"
           fi
-          graylint -L "ruff check" --revision origin/base
-        continue-on-error: true
+          if ! graylint -L "ruff check" --revision origin/base .; then
+            echo "graylint_failed=1" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Fail if any linter failed
+        run: |
+          echo "### 🧪 Lint Results"
+          darker_failed="${{ steps.darker.outputs.darker_failed }}"
+          graylint_failed="${{ steps.graylint.outputs.graylint_failed }}"
+          
+          if [[ "$darker_failed" == "1" ]]; then
+            echo "- ❌ **Darker** check failed"
+          else
+            echo "- ✅ **Darker** check passed"
+          fi
+
+          if [[ "$graylint_failed" == "1" ]]; then
+            echo "- ❌ **Graylint (ruff check)** failed"
+          else
+            echo "- ✅ **Graylint (ruff check)** passed"
+          fi
+
+          if [[ "$darker_failed" == "1" || "$graylint_failed" == "1" ]]; then
+            echo "::error::One or more linters failed. See above for details."
+            exit 1
+          else
+            echo "✅ All linters passed"
+          fi
