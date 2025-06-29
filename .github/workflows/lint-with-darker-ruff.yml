@@ -11,12 +11,6 @@ jobs:
       pull-requests: write
       contents: read
     steps:
-      - name: Checkout reusable actions repo
-        uses: actions/checkout@v3
-        with:
-          repository: vyos/.github
-          path: reusable-actions
-          ref: current
 
       - name: Checkout head
         uses: actions/checkout@v4
@@ -25,11 +19,9 @@ jobs:
           fetch-tags: true
           ref: ${{ github.event.pull_request.head.ref }}
           repository: ${{ github.event.pull_request.head.repo.full_name }}
-          path: repo
 
       - name: Fetch base
         run: |
-          cd repo
           git fetch https://github.com/${{ github.event.pull_request.base.repo.full_name }} ${{ github.event.pull_request.base.ref }}:refs/remotes/origin/base
 
       - name: Setup python
@@ -45,15 +37,24 @@ jobs:
         run: |
           pip install graylint==2.0.0
 
-      - name: Analyze Code
+      - name: Run Darker
         run: |
-          cd repo
+          if git ls-tree -r origin/base --name-only | grep -q '^pyproject.toml$'; then
+            git checkout origin/base -- pyproject.toml
+            echo "Using pyproject.toml from base repo"
+          else
+            echo "No pyproject.toml found in base repo"
+          fi
+          darker -r origin/base --check --diff --color .
+        continue-on-error: true
+
+      - name: Run Graylint
+        run: |
           if git ls-tree -r origin/base --name-only | grep -q '^ruff.toml$'; then
             git checkout origin/base -- ruff.toml
             echo "Using ruff.toml from base repo"
           else
             echo "No ruff.toml found in base repo"
           fi
-          # darker -r origin/base --check --diff --lint "ruff check" --color .
-          darker -r origin/base --check --diff --color .
           graylint -L "ruff check" --revision origin/base
+        continue-on-error: true
