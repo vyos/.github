@@ -1,5 +1,5 @@
 
-name: Mirror PR and Repo Sync
+name: PR Mirror and Repo Sync
 on:
   workflow_call:
 
