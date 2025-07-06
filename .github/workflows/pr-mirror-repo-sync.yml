@@ -1,0 +1,351 @@
+
+name: Mirror PR and Repo Sync
+on:
+  workflow_call:
+
+run-name: Mirror PRs of ${{ github.event.pull_request.base.ref }} branch
+
+env:
+  SYNC_BRANCH: ${{ github.event.pull_request.base.ref }}
+  TARGET_REPO: ${{ secrets.REMOTE_OWNER }}/${{ secrets.REMOTE_REPO }}
+  GH_TOKEN: ${{ secrets.PAT }}
+  GITHUB_TOKEN: ${{ secrets.PAT }}
+  SOURCE_REPO: ${{ github.repository }}
+  MIRROR_INITIATED_LABEL: 'mirror-initiated'
+  MIRROR_COMPLETED_LABEL: 'mirror-completed'
+  MIRROR_FAILED_LABEL: 'mirror-failed'
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: trigger-pr-mirror-repo-sync-${{ github.event.pull_request.base.ref }}
+  cancel-in-progress: false
+
+jobs:
+  get-unmirrored-PRs:
+    name: get unmirrored PRs
+    runs-on: ubuntu-latest
+    outputs:
+      unmirrored_prs: ${{ steps.get-unmirrored-prs.outputs.unmirrored_prs }}
+    steps:
+      - name: Bullfrog Secure Runner
+        continue-on-error: true
+        uses: bullfrogsec/bullfrog@v0.8.4
+        with:
+          egress-policy: audit
+
+      - name: Check first mirror
+        run: |
+          completion_labels_found=$(gh pr list --repo ${SOURCE_REPO} --state closed --json labels --jq "any(.[]; .labels[].name == \"${MIRROR_COMPLETED_LABEL}\")")
+          if [[ "$completion_labels_found" == "true" ]]; then
+            echo "first_mirror=false" >> $GITHUB_ENV
+          else
+            echo "first_mirror=true" >> $GITHUB_ENV
+          fi
+
+      - name: Get last mirrored PR date
+        if: env.first_mirror == 'false'
+        id: get-last-mirrored-date
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const { execSync } = require('child_process');
+            
+            const sourceRepo = process.env.SOURCE_REPO;
+            const baseRef = process.env.SYNC_BRANCH;
+            const mirrorCompletedLabel = process.env.MIRROR_COMPLETED_LABEL;
+
+            const cmd = `gh pr list \
+              --repo ${sourceRepo} \
+              --state merged \
+              --base ${baseRef} \
+              --label "${mirrorCompletedLabel}" \
+              --json number,mergedAt \
+              --jq 'sort_by(.mergedAt) | reverse | .[0].mergedAt'`;
+
+            console.info(`Running: ${cmd}`);
+
+            let lastMirroredDate = '';
+
+            try {
+              lastMirroredDate = execSync(cmd, { encoding: 'utf-8' })
+                .trim()
+                .replace(/"/g, '');
+            } catch (error) {
+              core.setFailed(`Failed to fetch last mirrored date: ${error.message}`);
+            }
+
+            console.info(`Last mirrored date: ${lastMirroredDate}`);
+            core.exportVariable('last_mirrored_date', lastMirroredDate);
+
+
+      - name: Get unmirrored PRs
+        id: get-unmirrored-prs
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const { execSync } = require('child_process');
+            const isFirstMirror = process.env.first_mirror;
+            const baseRef = process.env.SYNC_BRANCH;
+            const sourceRepo = process.env.SOURCE_REPO;
+            let cmd = '';
+
+            if (isFirstMirror === 'true') {
+              cmd = `gh pr list \
+                --repo ${sourceRepo} \
+                --state merged \
+                --base ${baseRef} \
+                --json number,mergedAt \
+                --jq 'sort_by(.mergedAt) | reverse | .[0].number'`;
+            } else {
+              const lastMirroredDate = process.env.last_mirrored_date;
+              const mirrorCompletedLabel = process.env.MIRROR_COMPLETED_LABEL;
+              const mirrorInitiatedLabel = process.env.MIRROR_INITIATED_LABEL;
+              cmd = `gh pr list \
+                --repo ${sourceRepo} \
+                --state merged \
+                --base ${baseRef} \
+                --limit 500 \
+                --json "number,mergedAt,labels" \
+                --jq 'map(select(
+                  (.mergedAt > "${lastMirroredDate}") and 
+                  (all(.labels[].name; . != "${mirrorCompletedLabel}" and . != "${mirrorInitiatedLabel}"))
+                )) | sort_by(.mergedAt) | .[].number'`;
+            }
+
+            core.info(`Running: ${cmd}`);
+
+            const unmirroredPRsRaw = execSync(cmd, { encoding: 'utf-8' });
+            const unmirroredPRs = unmirroredPRsRaw
+              .trim()
+              .split('\n')
+              .filter(line => line)
+              .map(line => parseInt(line, 10));
+
+            core.setOutput('unmirrored_prs', JSON.stringify(unmirroredPRs));
+            core.info(`unmirrored_prs=${JSON.stringify(unmirroredPRs)}`);
+
+
+  process-unmirrored-PR:
+    needs: get-unmirrored-PRs
+    if: needs.get-unmirrored-PRs.outputs.unmirrored_prs != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        pr_number: ${{ fromJson(needs.get-unmirrored-PRs.outputs.unmirrored_prs) }}
+      max-parallel: 1
+    env:
+      PR_NUMBER: ${{ matrix.pr_number }}
+    steps:
+
+      - name: Check PR mirror required
+        run: |
+          pr_labels=$(gh pr view $PR_NUMBER --repo $SOURCE_REPO --json labels --jq '.labels | map(.name)')
+          if [[ $pr_labels == *"${MIRROR_COMPLETED_LABEL}"* ]] || [[ $pr_labels == *"${MIRROR_INITIATED_LABEL}"* ]]; then
+            echo "PR #${PR_NUMBER} in source repo already has '${MIRROR_COMPLETED_LABEL}' or '${MIRROR_INITIATED_LABEL}' label"
+            echo "mirror_required=false" >> $GITHUB_ENV
+          else
+            echo "mirror_required=true" >> $GITHUB_ENV
+          fi
+
+      - name: Add mirror-initiated label
+        if: env.mirror_required == 'true'
+        shell: bash
+        run: |
+          label_name="${MIRROR_INITIATED_LABEL}"
+
+          if [[ $(gh label list --repo "$SOURCE_REPO" --json name --jq "[.[].name] | index(\"$label_name\") != null") != "true" ]]; then
+            echo "Label '$label_name' not found in repo. Creating it..."
+            gh label create "$label_name" --repo "$SOURCE_REPO" --color "ff0000" --description "This PR initiated for mirror sync workflow"
+          else
+            echo "Label '$label_name' already exists."
+          fi
+
+          gh issue edit "$PR_NUMBER" --repo "$SOURCE_REPO" --add-label "$label_name"
+
+      - name: Create checkout folder
+        if: env.mirror_required == 'true'
+        run: |
+          checkout_folder="/tmp/mirror/${PR_NUMBER}"
+          echo "checkout_folder=${checkout_folder}" >> $GITHUB_ENV
+          mkdir -p $checkout_folder
+
+      - name: Checkout source repo
+        if: env.mirror_required == 'true'
+        run: |
+          cd $checkout_folder
+          git config --global user.email "action@github.com"
+          git config --global user.name "GitHub Action"
+          git init
+          git remote add origin https://x-access-token:${{ secrets.PAT }}@github.com/${SOURCE_REPO}.git
+          git fetch
+          git checkout -b $SYNC_BRANCH
+
+      - name: Check first mirror
+        if: env.mirror_required == 'true'
+        run: |
+          completion_labels_found=$(gh pr list --repo ${SOURCE_REPO} --state closed --json labels --jq "any(.[]; .labels[].name == \"${MIRROR_COMPLETED_LABEL}\")")
+          if [[ "$completion_labels_found" == "true" ]]; then
+            echo "first_mirror=false" >> $GITHUB_ENV
+          else
+            echo "first_mirror=true" >> $GITHUB_ENV
+          fi
+
+      - name: Check previous merged PR mirrored
+        if: env.mirror_required == 'true' && env.first_mirror == 'false'
+        run: |
+          # Get the merge date of the given PR
+          merge_date=$(gh pr view $PR_NUMBER --repo ${SOURCE_REPO} --json mergedAt --jq '.mergedAt')
+          # Fetch all merged PRs on the base branch and find the one with the latest merge date before the given PR
+          previous_merged_source_pr=$(gh pr list --repo ${SOURCE_REPO} --base "${SYNC_BRANCH}" --state merged --json number,mergedAt --jq 'map(select(.mergedAt < "'"$merge_date"'")) | max_by(.mergedAt) | .number')
+          if [[ -z "$previous_merged_source_pr" ]]; then
+            echo "No previous merged PR found for branch ${SYNC_BRANCH}"
+          else 
+            echo "Previous merged source PR retrived ${previous_merged_source_pr}"
+            pr_labels=$(gh pr view $previous_merged_source_pr --repo ${SOURCE_REPO} --json labels --jq '.labels | map(.name)')
+            if [[ $pr_labels == *"${MIRROR_COMPLETED_LABEL}"* ]]; then
+              echo "Found previous merged PR (#${previous_merged_source_pr}) mirrored"
+            else
+              echo "::error::No mirrored PR found for previous merged source PR #${previous_merged_source_pr}"
+              echo "::error::Please check and make sure to run the sync in order"
+              exit -1
+            fi
+          fi
+
+      - name: Get source PR info
+        if: env.mirror_required == 'true'
+        run: |
+          cd $checkout_folder
+          pr_info=$(gh pr view $PR_NUMBER --repo $SOURCE_REPO --json commits,mergeCommit,body,title,labels)
+          echo "PR info retrived ${pr_info}"
+          last_commit=$(echo $pr_info | jq -r '.commits[-1].oid')
+          echo "Last commit retrived from pr view ${last_commit}"
+          merge_commit=$(echo $pr_info | jq -r '.mergeCommit.oid')
+          pr_body=$(echo $pr_info | jq -r '.body')
+          echo "pr_body<<EOF" >> $GITHUB_ENV
+          echo "$pr_body" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+          pr_title=$(echo $pr_info | jq -r '.title')
+          echo "pr_title=${pr_title}" >> $GITHUB_ENV
+          pr_labels=$(echo $pr_info | jq -r '.labels | map(.name) | join(",")')
+          echo "pr_labels=${pr_labels}" >> $GITHUB_ENV
+          if [[ $merge_commit == null ]]; then
+            echo "Merge commit not found, getting merge commit in base branch by merge message"
+            merge_commit=$(git log origin/${SYNC_BRANCH} --pretty=format:"%H" --grep "Merge pull request #${PR_NUMBER} from" -1)
+            if [[ -z "$merge_commit" ]]; then
+              echo "Merge commit not found, getting merge commit in base branch by pr title message"
+              escaped_pr_title=$(echo "$pr_title" | sed 's/"/\\"/g')
+              merge_commit=$(git log origin/${SYNC_BRANCH} --pretty=format:"%H" --grep "${escaped_pr_title}" -1)
+              if [[ -z "$merge_commit" ]]; then
+                echo "No merge commit found for PR #${PR_NUMBER} in base branch"
+                exit 1
+              fi
+            fi
+          fi
+          if ! git branch --contains ${last_commit}; then
+            echo "Last commit not found in the $SYNC_BRANCH branch, using merge commit as last_commit"
+            last_commit=${merge_commit}
+          fi
+          echo "last_commit=${last_commit}" >> $GITHUB_ENV
+          echo "merge_commit=${merge_commit}" >> $GITHUB_ENV
+          echo "Last commit retrived ${last_commit}, Merge commit retrived ${merge_commit}, PR labels retrived ${pr_labels}"
+
+      - name: Create mirror PR head branch (temp feature branch)
+        if: env.mirror_required == 'true'
+        run: |
+          pr_head_branch="mirror/${SYNC_BRANCH}/${PR_NUMBER}"
+          echo "pr_head_branch=${pr_head_branch}" >> $GITHUB_ENV
+          if gh api repos/$TARGET_REPO/git/refs/heads/${pr_head_branch} &> /dev/null; then
+            gh api -X DELETE repos/${TARGET_REPO}/git/refs/heads/${pr_head_branch}
+          fi
+          cd $checkout_folder
+          git checkout -b $pr_head_branch $last_commit
+          git remote add target https://x-access-token:${{ secrets.PAT }}@github.com/${TARGET_REPO}.git
+          git push target $pr_head_branch
+
+      - name: Create mirror PR
+        if: env.mirror_required == 'true'
+        run: |
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          title="${pr_title} (mirror ${PR_NUMBER})"
+          echo "**Note**: This pull request is mirrored from PR [$PR_NUMBER](https://github.com/${SOURCE_REPO}/pull/${PR_NUMBER}) using [workflow run](${run_url})." > pr_body.txt
+          echo "" >> pr_body.txt
+          echo "${pr_body}" >> pr_body.txt
+          pr_url=$(gh pr create --repo ${TARGET_REPO} --head $pr_head_branch --base $SYNC_BRANCH --title "${title}" --body "$(cat pr_body.txt)")
+          echo "Created PR url retrived ${pr_url}"
+          pr_number=$(basename $pr_url)
+          echo "mirror_pr_number=${pr_number}" >> $GITHUB_ENV
+
+      - name: Add mirror PR backport
+        if: env.mirror_required == 'true'
+        run: |
+          IFS=',' read -r -a labels <<< "$pr_labels"
+          for label in "${labels[@]}"; do
+            if [[ $label == bp/* ]]; then
+              bp_branch=${label#bp/}
+              if [[ -n "$bp_branch" ]]; then
+                echo "Adding backport for branch ${bp_branch}"
+                gh pr comment --repo ${TARGET_REPO} --body "@Mergifyio backport ${bp_branch}" $mirror_pr_number
+              fi
+            fi
+          done
+
+      - name: Merge mirror PR
+        if: env.mirror_required == 'true'
+        run: |
+          gh pr merge --repo ${TARGET_REPO} --merge --delete-branch $mirror_pr_number
+
+      - uses: actions/checkout@v4
+        if: env.mirror_required == 'true'
+        with:
+          persist-credentials: false
+
+      - name: Repo sync source repo PR commit
+        if: env.mirror_required == 'true'
+        shell: bash
+        run: |
+          set -e
+          source_repo_url="https://github.com/${SOURCE_REPO}.git"
+          git config --unset-all http."https://github.com/".extraheader || :
+          git remote set-url origin "https://$GITHUB_ACTOR:$GITHUB_TOKEN@github.com/$TARGET_REPO.git"
+          git remote add tmp_source "$source_repo_url"
+          git fetch tmp_source --quiet
+          git push origin "${last_commit}:refs/heads/${SYNC_BRANCH}" --force
+          git push origin "${merge_commit}:refs/heads/${SYNC_BRANCH}" --force
+          git remote rm tmp_source
+
+      - name: Add process labels to source PR
+        shell: bash
+        if: always() && env.mirror_required == 'true'
+        run: |
+          create_label_if_not_exists() {
+            local repo=$1
+            local label_name=$2
+            local label_color=$3
+            local label_description=$4
+
+            if [[ $(gh label list --repo "$repo" --json name --jq "[.[].name] | index(\"$label_name\") != null") != "true" ]]; then
+              echo "Label '$label_name' not found in repo. Creating it..."
+              gh label create "$label_name" --color "$label_color" --description "$label_description" --repo "$repo"
+            else
+              echo "Label '$label_name' already exists."
+            fi
+          }
+
+          gh issue edit "$PR_NUMBER" --repo "${SOURCE_REPO}" --remove-label "${MIRROR_INITIATED_LABEL}"
+
+          if [ "${{ job.status }}" == "success" ]; then
+            create_label_if_not_exists "${SOURCE_REPO}" "${MIRROR_COMPLETED_LABEL}" "00ff00" "This PR has been mirrored successfully"
+            gh issue edit "$PR_NUMBER" --repo "${SOURCE_REPO}" --add-label "${MIRROR_COMPLETED_LABEL}"
+
+            # Remove mirror-failed if exists
+            if [[ $(gh issue view "$PR_NUMBER" --repo "${SOURCE_REPO}" --json labels --jq "[.labels[].name] | index(\"${MIRROR_FAILED_LABEL}\") != null") == "true" ]]; then
+              gh issue edit "$PR_NUMBER" --repo "${SOURCE_REPO}" --remove-label "${MIRROR_FAILED_LABEL}"
+            fi
+          else
+            create_label_if_not_exists "${SOURCE_REPO}" "${MIRROR_FAILED_LABEL}" "ff0000" "This PR mirror has failed"
+            gh issue edit "$PR_NUMBER" --repo "${SOURCE_REPO}" --add-label "${MIRROR_FAILED_LABEL}"
+          fi
