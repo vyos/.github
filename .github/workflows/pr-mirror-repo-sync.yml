@@ -296,7 +296,7 @@ jobs:
       - name: Merge mirror PR
         if: env.mirror_required == 'true'
         run: |
-          gh pr merge --repo ${TARGET_REPO} --merge --delete-branch $mirror_pr_number
+          gh pr merge --repo ${TARGET_REPO} --merge $mirror_pr_number
 
       - uses: actions/checkout@v4
         if: env.mirror_required == 'true'
@@ -348,4 +348,15 @@ jobs:
           else
             create_label_if_not_exists "${SOURCE_REPO}" "${MIRROR_FAILED_LABEL}" "ff0000" "This PR mirror has failed"
             gh issue edit "$PR_NUMBER" --repo "${SOURCE_REPO}" --add-label "${MIRROR_FAILED_LABEL}"
+          fi
+
+      - name: Cleanup mirror PR temp branch
+        if: always() && env.mirror_required == 'true'
+        run: |
+          echo "Cleaning up temp branch: $pr_head_branch from ${TARGET_REPO}"
+          if gh api repos/${TARGET_REPO}/git/refs/heads/${pr_head_branch} &> /dev/null; then
+            gh api -X DELETE repos/${TARGET_REPO}/git/refs/heads/${pr_head_branch}
+            echo "Deleted temp branch: ${pr_head_branch}"
+          else
+            echo "Temp branch ${pr_head_branch} does not exist or already deleted"
           fi
