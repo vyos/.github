@@ -21,7 +21,7 @@ run-name: Mirror PRs from ${{ github.event.inputs.sync_branch || github.event.pu
 env:
   SYNC_BRANCH: ${{ github.event.inputs.sync_branch || github.event.pull_request.base.ref }}
   # TARGET_REPO: ${{ secrets.REMOTE_OWNER }}/${{ secrets.REMOTE_REPO }}
-  TARGET_REPO: ${{ secrets.REMOTE_OWNER }}/gh-action-test-vyos-1x
+  TARGET_REPO: vyos-networks/gh-action-test-vyos-1x
   GH_TOKEN: ${{ secrets.PAT }}
   GITHUB_TOKEN: ${{ secrets.PAT }}
   SOURCE_REPO: ${{ github.repository }}
