@@ -11,6 +11,10 @@ on:
     secrets:
       PAT:
         required: true
+      REMOTE_OWNER:
+        required: true 
+      REMOTE_REPO:
+        required: true
 
 run-name: Mirror PRs from ${{ github.event.inputs.sync_branch || github.event.pull_request.base.ref }} branch
 
