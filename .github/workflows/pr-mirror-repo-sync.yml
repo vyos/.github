@@ -2,11 +2,20 @@
 name: PR Mirror and Repo Sync
 on:
   workflow_call:
+    inputs:
+      sync_branch:
+        description: 'branch to sync'
+        required: false
+        type: string
+        default: 'current'
+    secrets:
+      PAT:
+        required: true
 
-run-name: Mirror PRs of ${{ github.event.pull_request.base.ref }} branch
+run-name: Mirror PRs from ${{ github.event.inputs.sync_branch || github.event.pull_request.base.ref }} branch
 
 env:
-  SYNC_BRANCH: ${{ github.event.pull_request.base.ref }}
+  SYNC_BRANCH: ${{ github.event.inputs.sync_branch || github.event.pull_request.base.ref }}
   TARGET_REPO: ${{ secrets.REMOTE_OWNER }}/${{ secrets.REMOTE_REPO }}
   GH_TOKEN: ${{ secrets.PAT }}
   GITHUB_TOKEN: ${{ secrets.PAT }}
@@ -21,7 +30,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: trigger-pr-mirror-repo-sync-${{ github.event.pull_request.base.ref }}
+  group: trigger-pr-mirror-repo-sync-${{ github.event.inputs.sync_branch || github.event.pull_request.base.ref }}
   cancel-in-progress: false
 
 jobs:
