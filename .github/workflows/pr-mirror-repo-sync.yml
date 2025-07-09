@@ -2,15 +2,15 @@
 name: PR Mirror and Repo Sync
 on:
   workflow_call:
-    inputs:
-      sync_branch:
-        description: 'branch to sync'
-        required: false
-        type: string
-        default: 'current'
-    secrets:
-      PAT:
-        required: true
+    # inputs:
+    #   sync_branch:
+    #     description: 'branch to sync'
+    #     required: false
+    #     type: string
+    #     default: 'current'
+    # secrets:
+    #   PAT:
+    #     required: true
 
 run-name: Mirror PRs from ${{ github.event.inputs.sync_branch || github.event.pull_request.base.ref }} branch
 
