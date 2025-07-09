@@ -8,6 +8,9 @@ on:
         required: false
         type: string
         default: 'current'
+    secrets:
+      PAT:
+        required: true
 
 run-name: Mirror PRs from ${{ github.event.inputs.sync_branch || github.event.pull_request.base.ref }} branch
 
