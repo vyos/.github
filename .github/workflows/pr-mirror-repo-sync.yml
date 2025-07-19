@@ -13,14 +13,12 @@ on:
         required: true
       REMOTE_OWNER:
         required: true 
-      REMOTE_REPO:
-        required: true
 
 run-name: Mirror PRs from ${{ github.event.inputs.sync_branch || github.event.pull_request.base.ref }} branch
 
 env:
   SYNC_BRANCH: ${{ github.event.inputs.sync_branch || github.event.pull_request.base.ref }}
-  TARGET_REPO: ${{ secrets.REMOTE_OWNER }}/${{ secrets.REMOTE_REPO }}
+  TARGET_REPO: ${{ secrets.REMOTE_OWNER }}/${{ github.event.repository.name }}
   GH_TOKEN: ${{ secrets.PAT }}
   GITHUB_TOKEN: ${{ secrets.PAT }}
   SOURCE_REPO: ${{ github.repository }}
