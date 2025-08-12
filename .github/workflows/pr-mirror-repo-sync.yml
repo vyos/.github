@@ -230,9 +230,9 @@ jobs:
         if: env.mirror_required == 'true'
         run: |
           cd $checkout_folder
-          pr_info=$(gh pr view $PR_NUMBER --repo $SOURCE_REPO --json commits,mergeCommit,body,title,labels)
+          pr_info=$(gh pr view $PR_NUMBER --repo $SOURCE_REPO --json commits,mergeCommit,body,title,labels,headRefOid)
           echo "PR info retrived ${pr_info}"
-          last_commit=$(echo $pr_info | jq -r '.commits[-1].oid')
+          last_commit=$(echo $pr_info | jq -r '.headRefOid')
           echo "Last commit retrived from pr view ${last_commit}"
           merge_commit=$(echo $pr_info | jq -r '.mergeCommit.oid')
           pr_body=$(echo $pr_info | jq -r '.body')
