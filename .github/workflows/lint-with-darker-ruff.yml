@@ -31,7 +31,7 @@ jobs:
 
       - name: Install darker ruff 
         run: |
-          pip install git+https://github.com/akaihola/darker.git@master ruff>=0.0.292
+          pip install "darker[black] @ git+https://github.com/akaihola/darker.git@master" "ruff>=0.0.292"
 
       - name: Install greylint
         run: |
