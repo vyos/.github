@@ -1,172 +1,28 @@
-name: "Check PR merge conflicts"
+name: "Check PRs conflict"
 on:
   workflow_call:
-    inputs:
-      pr_number:
-        description: "Pull Request Number"
-        required: false
-        type: string
 
 jobs:
-  pr-conflict-check:
-    name: "Check PR #${{ inputs.pr_number != '' && inputs.pr_number || github.event.pull_request.number }}"
+  prs-conflict-Check:
+    name: 'Check PRs status: conflicts and resolution'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: write
-    env:
-      CONFLICT_LABEL: "conflicts"
-      REMOVE_LABEL_ON_CONFLICT: "state: conflict resolved"
-      COMMENT_ON_CONFLICT: "This pull request has conflicts. Please resolve them before we can evaluate the pull request."
-      COMMENT_ON_RESOLUTION: "Conflicts have been resolved. A maintainer will review the pull request shortly."
     steps:
-      - name: Optional delay when triggered with pr_number
-        if: inputs.pr_number != ''
-        run: |
-          delay=$(( ( RANDOM % 10 ) + 5 ))
-          echo "Running in matrix mode. Sleeping for $delay seconds..."
-          sleep $delay
-
       - name: Bullfrog Secure Runner
         continue-on-error: true
         uses: bullfrogsec/bullfrog@v0.8.4
         with:
           egress-policy: audit
 
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: check if PRs are dirty
+        uses: eps1lon/actions-label-merge-conflict@v3
         with:
-          fetch-depth: 0
-
-      - name: Determine PR number and branches
-        id: pr_info
-        run: |
-          if [[ -n "${{ inputs.pr_number }}" ]]; then
-            PR_NUMBER="${{ inputs.pr_number }}"
-            echo "PR number provided as input: #$PR_NUMBER"
-
-            pr_json=$(gh pr view "$PR_NUMBER" --json baseRefName,headRefName,headRepository,headRepositoryOwner)
-
-            BASE=$(echo "$pr_json" | jq -r '.baseRefName')
-            HEAD=$(echo "$pr_json" | jq -r '.headRefName')
-
-            # Construct head repo as owner/name
-            HEAD_REPO=$(echo "$pr_json" | jq -r '
-              if .headRepository != null and .headRepository.name != null and .headRepositoryOwner != null then
-                .headRepositoryOwner.login + "/" + .headRepository.name
-              else
-                empty
-              end
-            ')
-
-            if [[ -z "$HEAD_REPO" ]]; then
-              echo "❌ Could not determine head repository"
-              exit 1
-            fi
-          else
-            PR_NUMBER="${{ github.event.pull_request.number }}"
-            BASE="${{ github.event.pull_request.base.ref }}"
-            HEAD="${{ github.event.pull_request.head.ref }}"
-            HEAD_REPO="${{ github.event.pull_request.head.repo.full_name }}"
-          fi
-
-          echo "pr_number=$PR_NUMBER"
-          echo "base_branch=$BASE"
-          echo "head_branch=$HEAD"
-          echo "head_repo=$HEAD_REPO"
-
-          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
-          echo "base_branch=$BASE" >> $GITHUB_OUTPUT
-          echo "head_branch=$HEAD" >> $GITHUB_OUTPUT
-          echo "head_repo=$HEAD_REPO" >> $GITHUB_OUTPUT
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set Git user identity
-        run: |
-          git config --global user.email "actions@github.com"
-          git config --global user.name "GitHub Actions"
-
-      - name: Fetch base and head branches
-        run: |
-          git fetch origin ${{ steps.pr_info.outputs.base_branch }}
-          # Fetch head branch from fork or origin
-          if [[ "${{ github.repository }}" != "${{ steps.pr_info.outputs.head_repo }}" ]]; then
-            echo "Head is from a fork (${{steps.pr_info.outputs.head_repo }}), fetching via HTTPS..."
-            git fetch https://github.com/${{ steps.pr_info.outputs.head_repo }} ${{ steps.pr_info.outputs.head_branch }}
-          else
-            echo "Head is from the same repo, fetching from origin..."
-            git fetch origin ${{ steps.pr_info.outputs.head_branch }}
-          fi
-
-      - name: Check for merge conflicts
-        id: merge_check
-        run: |
-          BASE="${{ steps.pr_info.outputs.base_branch }}"
-          HEAD="${{ steps.pr_info.outputs.head_branch }}"
-          HEAD_REPO="${{ steps.pr_info.outputs.head_repo }}"
-
-          echo "Checking merge of '$HEAD' into '$BASE'..."
-
-          git checkout -B merge-base origin/$BASE
-
-          if [[ "${{ github.repository }}" != "$HEAD_REPO" ]]; then
-            echo "Head is from fork — merging FETCH_HEAD"
-            if git merge --no-commit --no-ff FETCH_HEAD; then
-              echo "mergeable=true" >> $GITHUB_OUTPUT
-              git merge --abort || true
-            else
-              echo "mergeable=false" >> $GITHUB_OUTPUT
-              git merge --abort || true
-            fi
-          else
-            echo "Head is from same repo — merging origin/$HEAD"
-            if git merge --no-commit --no-ff origin/$HEAD; then
-              echo "mergeable=true" >> $GITHUB_OUTPUT
-              git merge --abort || true
-            else
-              echo "mergeable=false" >> $GITHUB_OUTPUT
-              git merge --abort || true
-            fi
-          fi
-
-      - name: Check if conflict label exists
-        id: conflict_label_check
-        run: |
-          PR_NUMBER=${{ steps.pr_info.outputs.pr_number }}
-          LABEL_EXISTS=$(gh pr view "$PR_NUMBER" --json labels | jq -r --arg label "${{ env.CONFLICT_LABEL }}" '.labels[].name | select(. == $label)' | wc -l)
-          [[ "$LABEL_EXISTS" -gt 0 ]] && echo "has_conflict_label=true" >> $GITHUB_OUTPUT || echo "has_conflict_label=false" >> $GITHUB_OUTPUT
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Add or remove conflict label based on mergeability
-        run: |
-          PR_NUMBER=${{ steps.pr_info.outputs.pr_number }}
-          MERGEABLE="${{ steps.merge_check.outputs.mergeable }}"
-          HAD_CONFLICT_LABEL="${{ steps.conflict_label_check.outputs.has_conflict_label }}"
-
-          if [[ "$MERGEABLE" == "true" ]]; then
-            echo "✅ PR is mergeable — removing '$CONFLICT_LABEL' label if it exists."
-            gh pr edit "$PR_NUMBER" --remove-label "$CONFLICT_LABEL" || true
-
-            if [[ "$HAD_CONFLICT_LABEL" == "true" ]]; then
-              echo "💬 Posting 'conflicts resolved' comment..."
-              gh pr comment "$PR_NUMBER" --body "✅ **Conflicts Resolved.** $COMMENT_ON_RESOLUTION"
-            fi
-          else
-            echo "❌ PR has merge conflicts."
-            if [[ "$HAD_CONFLICT_LABEL" == "true" ]]; then
-              echo "ℹ️ Conflict label already exists — no update needed."
-            else
-              echo "➕ Adding '$CONFLICT_LABEL' label."
-              if ! gh label list --json name | jq -e --arg label "$CONFLICT_LABEL" '.[] | select(.name == $label)' > /dev/null; then
-                gh label create "$CONFLICT_LABEL" --color "d73a4a" --description "PR has merge conflicts"
-              fi
-              gh pr edit "$PR_NUMBER" --add-label "$CONFLICT_LABEL"
-              echo "💬 Posting 'has conflicts' comment..."
-              gh pr comment "$PR_NUMBER" --body "❌ **Conflicts Found.** $COMMENT_ON_CONFLICT"
-            fi
-            gh pr edit "$PR_NUMBER" --remove-label "$REMOVE_LABEL_ON_CONFLICT" || true
-          fi
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          dirtyLabel: "conflicts"
+          removeOnDirtyLabel: "state: conflict resolved"
+          repoToken: "${{ secrets.GITHUB_TOKEN }}"
+          retryAfter: 120
+          retryMax: 10
+          commentOnDirty: "This pull request has conflicts, please resolve those before we can evaluate the pull request."
+          commentOnClean: "Conflicts have been resolved. A maintainer will review the pull request shortly."
