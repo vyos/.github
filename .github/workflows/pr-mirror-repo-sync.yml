@@ -236,9 +236,9 @@ jobs:
           echo "Last commit retrived from pr view ${last_commit}"
           merge_commit=$(echo $pr_info | jq -r '.mergeCommit.oid')
           pr_body=$(echo $pr_info | jq -r '.body')
-          echo "pr_body<<EOF" >> $GITHUB_ENV
-          echo "$pr_body" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
+          # echo "pr_body<<EOF" >> $GITHUB_ENV
+          # echo "$pr_body" >> $GITHUB_ENV
+          # echo "EOF" >> $GITHUB_ENV
           pr_title=$(echo $pr_info | jq -r '.title')
           echo "pr_title=${pr_title}" >> $GITHUB_ENV
           pr_labels=$(echo $pr_info | jq -r '.labels | map(.name) | join(",")')
@@ -262,6 +262,13 @@ jobs:
           fi
           echo "last_commit=${last_commit}" >> $GITHUB_ENV
           echo "merge_commit=${merge_commit}" >> $GITHUB_ENV
+          # Write full PR body to a file for later
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          {
+            echo "**Note**: This pull request is mirrored from PR [$PR_NUMBER](https://github.com/${SOURCE_REPO}/pull/${PR_NUMBER}) using [workflow run](${run_url})."
+            echo ""
+            echo "$pr_body"
+          } > pr_body.txt
           echo "Last commit retrived ${last_commit}, Merge commit retrived ${merge_commit}, PR labels retrived ${pr_labels}"
 
       - name: Create mirror PR head branch (temp feature branch)
@@ -282,10 +289,11 @@ jobs:
         run: |
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           title="${pr_title} (mirror ${PR_NUMBER})"
-          echo "**Note**: This pull request is mirrored from PR [$PR_NUMBER](https://github.com/${SOURCE_REPO}/pull/${PR_NUMBER}) using [workflow run](${run_url})." > pr_body.txt
-          echo "" >> pr_body.txt
-          echo "${pr_body}" >> pr_body.txt
-          pr_url=$(gh pr create --repo ${TARGET_REPO} --head $pr_head_branch --base $SYNC_BRANCH --title "${title}" --body "$(cat pr_body.txt)")
+          # echo "**Note**: This pull request is mirrored from PR [$PR_NUMBER](https://github.com/${SOURCE_REPO}/pull/${PR_NUMBER}) using [workflow run](${run_url})." > pr_body.txt
+          # echo "" >> pr_body.txt
+          # echo "${pr_body}" >> pr_body.txt
+          pr_url=$(gh pr create --repo ${TARGET_REPO} --head $pr_head_branch --base $SYNC_BRANCH --title "${title}" --body-file pr_body.txt)
+          # --body "$(cat pr_body.txt)")
           echo "Created PR url retrived ${pr_url}"
           pr_number=$(basename $pr_url)
           echo "mirror_pr_number=${pr_number}" >> $GITHUB_ENV
