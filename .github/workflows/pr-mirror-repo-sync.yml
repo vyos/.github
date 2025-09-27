@@ -235,7 +235,7 @@ jobs:
           last_commit=$(echo $pr_info | jq -r '.headRefOid')
           echo "Last commit retrived from pr view ${last_commit}"
           merge_commit=$(echo $pr_info | jq -r '.mergeCommit.oid')
-          pr_body=$(echo $pr_info | jq -r '.body')
+          pr_body=$(echo "$pr_info" | jq -j '.body')   # preserve indentation
           pr_title=$(echo $pr_info | jq -r '.title')
           echo "pr_title=${pr_title}" >> $GITHUB_ENV
           pr_labels=$(echo $pr_info | jq -r '.labels | map(.name) | join(",")')
@@ -264,8 +264,7 @@ jobs:
           {
             echo "**Note**: This pull request is mirrored from PR [$PR_NUMBER](https://github.com/${SOURCE_REPO}/pull/${PR_NUMBER}) using [workflow run](${run_url})."
             echo ""
-            # Preserve whitespace exactly
-            cat <<<"$pr_body"
+            printf '%s\n' "$pr_body"   # exact preservation
           } > /tmp/pr_body.txt
           echo "Last commit retrived ${last_commit}, Merge commit retrived ${merge_commit}, PR labels retrived ${pr_labels}"
 
