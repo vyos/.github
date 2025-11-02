@@ -1,0 +1,25 @@
+name: 'Check PR Conflicts'
+description: 'Automatically detect merge conflicts in pull requests and manage conflict labels with intelligent event-based filtering'
+author: 'VyOS'
+inputs:
+  github-token:
+    description: 'GitHub token for API access. Use github.token or a PAT with repo permissions.'
+    required: true
+  conflict-label:
+    description: 'Label to add to PRs when merge conflicts are detected. Will be removed when conflicts are resolved.'
+    required: false
+    default: 'conflicts'
+  max-retries:
+    description: 'Maximum number of retries when waiting for GitHub to calculate mergeable state (GitHub API can be slow)'
+    required: false
+    default: '10'
+  retry-delay:
+    description: 'Delay between retries in milliseconds when waiting for mergeable state'
+    required: false
+    default: '5000'
+runs:
+  using: 'node20'
+  main: 'dist/index.js'
+branding:
+  icon: 'git-merge'
+  color: 'orange'

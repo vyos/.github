@@ -1,0 +1,9 @@
+node_modules/
+*.log
+.env
+lib/
+coverage/
+*.tsbuildinfo
+# Keep dist/index.js for the action to work
+!dist/index.js
+!dist/licenses.txt
