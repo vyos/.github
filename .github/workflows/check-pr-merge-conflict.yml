@@ -1,28 +1,58 @@
+# Reusable workflow for checking PR conflicts
+# Usage: uses: vyos/.github/.github/workflows/check-pr-merge-conflict.yml@main
+# For development: uses: vyos/.github/.github/workflows/check-pr-merge-conflict.yml@branch
+#                  with: action-ref: 'branch'
 name: "Check PRs conflict"
 on:
   workflow_call:
+    inputs:
+      action-ref:
+        description: 'Branch/tag/SHA to use for the action (should match the workflow ref)'
+        required: false
+        default: 'current'
+        type: string
 
 jobs:
   prs-conflict-Check:
-    name: 'Check PRs status: conflicts and resolution'
+    name: 'Check PRs status: conflicts'
     runs-on: ubuntu-latest
+    # Only run if:
+    # 1. Not a PR trigger, OR
+    # 2. PR trigger with synchronize action, OR  
+    # 3. PR trigger with closed action and merged
+    if: |
+      github.event_name != 'pull_request' && github.event_name != 'pull_request_target' ||
+      github.event.action == 'synchronize' ||
+      (github.event.action == 'closed' && github.event.pull_request.merged == true)
     permissions:
       contents: read
       pull-requests: write
     steps:
-      - name: Bullfrog Secure Runner
-        continue-on-error: true
-        uses: bullfrogsec/bullfrog@v0.8.4
+      - name: Checkout .github repository
+        uses: actions/checkout@v4
         with:
-          egress-policy: audit
+          repository: vyos/.github
+          ref: ${{ inputs.action-ref }}
 
-      - name: check if PRs are dirty
-        uses: eps1lon/actions-label-merge-conflict@v3
+      - name: Checkout .github repository for action
+        uses: actions/checkout@v4
         with:
-          dirtyLabel: "conflicts"
-          removeOnDirtyLabel: "state: conflict resolved"
-          repoToken: "${{ secrets.GITHUB_TOKEN }}"
-          retryAfter: 120
-          retryMax: 10
-          commentOnDirty: "This pull request has conflicts, please resolve those before we can evaluate the pull request."
-          commentOnClean: "Conflicts have been resolved. A maintainer will review the pull request shortly."
+          repository: vyos/.github
+          ref: ${{ inputs.action-ref }}
+          path: .github-repo
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: pip install requests==2.32.5
+
+      - name: Check PRs for conflicts
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CONFLICT_LABEL: "conflicts"
+          MAX_RETRIES: "10"
+          RETRY_DELAY: "5"
+        run: python ./.github-repo/scripts/check-pr-conflicts.py
