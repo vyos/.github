@@ -17,24 +17,19 @@ jobs:
     name: 'Check PRs status: conflicts'
     runs-on: ubuntu-latest
     # Only run if:
-    # 1. Not a PR trigger, OR
+    # 1. Not a PR trigger (scheduled/manual), OR
     # 2. PR trigger with synchronize action, OR  
     # 3. PR trigger with closed action and merged
     if: |
-      github.event_name != 'pull_request' && github.event_name != 'pull_request_target' ||
-      github.event.action == 'synchronize' ||
-      (github.event.action == 'closed' && github.event.pull_request.merged == true)
+      (github.event_name != 'pull_request' && github.event_name != 'pull_request_target') ||
+      ((github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && 
+       (github.event.action == 'synchronize' || 
+        (github.event.action == 'closed' && github.event.pull_request.merged == true)))
     permissions:
       contents: read
       pull-requests: write
     steps:
       - name: Checkout .github repository
-        uses: actions/checkout@v4
-        with:
-          repository: vyos/.github
-          ref: ${{ inputs.action-ref }}
-
-      - name: Checkout .github repository for action
         uses: actions/checkout@v4
         with:
           repository: vyos/.github
@@ -47,7 +42,7 @@ jobs:
           python-version: '3.x'
 
       - name: Install dependencies
-        run: pip install requests==2.32.5
+        run: pip install -r ./.github-repo/scripts/requirements.txt
 
       - name: Check PRs for conflicts
         env:

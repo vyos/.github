@@ -1,0 +1,2 @@
+# Python dependencies for PR conflict checking script
+requests>=2.32.0,<3.0.0

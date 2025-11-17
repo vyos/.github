@@ -29,6 +29,9 @@ PULL_REQUEST_EVENTS = ["pull_request", "pull_request_target"]
 MERGEABLE_STATES = {
     "UNKNOWN": "unknown",
     "DIRTY": "dirty",
+    "CLEAN": "clean",
+    "BLOCKED": "blocked",
+    "UNSTABLE": "unstable",
     "BEHIND": "behind"
 }
 
@@ -62,11 +65,22 @@ class GitHubAPI:
         return response
 
     def fetch_open_prs(self) -> List[Dict[str, Any]]:
-        """Fetch all open pull requests."""
+        """Fetch all open pull requests with pagination support."""
         endpoint = f"/repos/{self.owner}/{self.repo}/pulls"
         params = {"state": "open", "per_page": DEFAULT_PER_PAGE}
-        response = self._request("GET", endpoint, params=params)
-        return response.json()
+        all_prs = []
+        page = 1
+        
+        while True:
+            params["page"] = page
+            response = self._request("GET", endpoint, params=params)
+            prs = response.json()
+            if not prs:
+                break
+            all_prs.extend(prs)
+            page += 1
+        
+        return all_prs
 
     def get_pr_details(self, pr_number: int) -> Dict[str, Any]:
         """Get detailed information about a PR."""
@@ -168,9 +182,18 @@ def wait_for_mergeable_state(api: GitHubAPI, pr_number: int, max_retries: int, r
 
 
 def has_conflicts(mergeable: Optional[bool], mergeable_state: str) -> bool:
-    """Check if PR has conflicts based on mergeable state."""
-    return (mergeable is False and 
-            mergeable_state in [MERGEABLE_STATES["DIRTY"], MERGEABLE_STATES["BEHIND"]])
+    """
+    Check if PR has conflicts based on mergeable state.
+    
+    According to GitHub API:
+    - mergeable: false + mergeable_state: "dirty" = has merge conflicts
+    - mergeable_state: "behind" = behind base branch but mergeable (no conflicts)
+    - mergeable_state: "blocked" = blocked by branch protection (not a conflict)
+    - mergeable_state: "unstable" = failing checks (not a conflict)
+    
+    We only mark PRs with actual merge conflicts (dirty state).
+    """
+    return mergeable is False and mergeable_state == MERGEABLE_STATES["DIRTY"]
 
 
 def process_pr(api: GitHubAPI, pr: Dict[str, Any], conflict_label: str, max_retries: int, retry_delay: int) -> None:
@@ -192,8 +215,11 @@ def process_pr(api: GitHubAPI, pr: Dict[str, Any], conflict_label: str, max_retr
     log_info(f"  Has conflicts: {pr_has_conflicts}, Has label: {has_conflict_label}")
     
     if pr_has_conflicts and not has_conflict_label:
-        api.add_label(pr_number, conflict_label)
-        log_info(f"  ✅ Added {conflict_label} label to PR #{pr_number}")
+        try:
+            api.add_label(pr_number, conflict_label)
+            log_info(f"  ✅ Added {conflict_label} label to PR #{pr_number}")
+        except requests.exceptions.HTTPError as e:
+            log_warning(f"  Could not add label: {e}")
     elif not pr_has_conflicts and has_conflict_label:
         try:
             api.remove_label(pr_number, conflict_label)
