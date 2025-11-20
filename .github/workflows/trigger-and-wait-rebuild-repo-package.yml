@@ -1,0 +1,58 @@
+name: Trigger a package build and wait for workflow to finish
+
+on:
+  workflow_call:
+    inputs:
+      branch:
+        description: 'PR target branch'
+        required: true
+        type: string
+        default: current
+      package_name:
+        description: 'PR package name'
+        required: true
+        type: string
+      REF:
+        required: false
+        type: string
+        default: main
+    secrets:
+      REMOTE_OWNER:
+        description: 'Remote repo owner'
+        required: true
+      REMOTE_REUSE_REPO:
+        description: 'Remote reusable repo name'
+        required: true
+      GPG_KEY_ID:
+        description: 'DEB repo GPG key ID'
+        required: true
+      PAT:
+        description: 'Personal Access Token'
+        required: true
+
+jobs:
+  trigger_package_build:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Bullfrog Secure Runner
+        continue-on-error: true
+        uses: bullfrogsec/bullfrog@v0.8.4
+        with:
+          egress-policy: audit
+
+      - name: Trigger rebuild for ${{ inputs.package_name }} and wait for workflow to finish
+        uses: convictional/trigger-workflow-and-wait@v1.6.1
+        with:
+          owner: ${{ secrets.REMOTE_OWNER }}
+          repo: ${{ secrets.REMOTE_REUSE_REPO }}
+          github_token: ${{ secrets.PAT }}
+          github_user: vyosbot
+          workflow_file_name: build-package.yml
+          ref: main
+          wait_interval: 60
+          client_payload: '{"ref": "${{ inputs.REF }}", "inputs":{"package_name":"${{ inputs.package_name }}", "gpg_key_id": "${{ secrets.GPG_KEY_ID }}", "package_branch": "${{ inputs.branch }}", "pat": "${{ secrets.PAT }}"}}'
+          propagate_failure: true
+          trigger_workflow: true
+          wait_workflow: true
