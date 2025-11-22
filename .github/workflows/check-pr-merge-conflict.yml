@@ -9,7 +9,7 @@ on:
       action-ref:
         description: 'Branch/tag/SHA to use for the action (should match the workflow ref)'
         required: false
-        default: 'current'
+        default: 'circinus'
         type: string
 
 jobs:
