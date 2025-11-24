@@ -43,7 +43,7 @@ jobs:
           egress-policy: audit
 
       - name: Trigger rebuild for ${{ inputs.package_name }} and wait for workflow to finish
-        uses: convictional/trigger-workflow-and-wait@v1.6.1
+        uses: convictional/trigger-workflow-and-wait@v1.6.5
         with:
           owner: ${{ secrets.REMOTE_OWNER }}
           repo: ${{ secrets.REMOTE_REUSE_REPO }}
