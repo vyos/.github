@@ -50,7 +50,7 @@ jobs:
           github_token: ${{ secrets.PAT }}
           github_user: vyosbot
           workflow_file_name: build-package.yml
-          ref: main
+          ref: ${{ inputs.REF }}
           wait_interval: 60
           client_payload: '{"package_name":"${{ inputs.package_name }}", "gpg_key_id": "${{ secrets.GPG_KEY_ID }}", "package_branch": "${{ inputs.branch }}", "pat": "${{ secrets.PAT }}"}'
           propagate_failure: true
