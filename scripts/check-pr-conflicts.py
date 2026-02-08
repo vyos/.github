@@ -3,13 +3,16 @@
 Check PR conflicts and manage conflict labels.
 
 This script checks pull requests for merge conflicts and automatically
-adds/removes a conflict label based on the mergeable state.
+adds/removes a conflict label based on the mergeable state and detection
+of conflict markers in the PR diff (for Mergify backport PRs).
 """
 
 import os
 import sys
 import time
 import json
+import subprocess
+import re
 from typing import List, Dict, Optional, Any
 from enum import Enum
 
@@ -181,9 +184,64 @@ def wait_for_mergeable_state(api: GitHubAPI, pr_number: int, max_retries: int, r
     return pr_details
 
 
-def has_conflicts(mergeable: Optional[bool], mergeable_state: str) -> bool:
+def get_pr_diff(owner: str, repo: str, pr_number: int) -> Optional[str]:
     """
-    Check if PR has conflicts based on mergeable state.
+    Get PR diff using gh CLI.
+    
+    Returns the diff output, or None if the command fails.
+    Requires gh CLI to be available and GITHUB_TOKEN to be set.
+    """
+    try:
+        result = subprocess.run(
+            ["gh", "pr", "diff", str(pr_number), "--repo", f"{owner}/{repo}"],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        if result.returncode == 0:
+            return result.stdout
+        else:
+            log_warning(f"  Could not get PR diff: {result.stderr.strip()}")
+            return None
+    except FileNotFoundError:
+        log_warning("  gh CLI not found - cannot check for conflict markers")
+        return None
+    except subprocess.TimeoutExpired:
+        log_warning("  Timeout getting PR diff")
+        return None
+    except Exception as e:
+        log_warning(f"  Error getting PR diff: {e}")
+        return None
+
+
+def has_conflict_markers(diff_content: str) -> bool:
+    """
+    Check if diff contains unresolved conflict markers.
+    
+    Detects markers used by git:
+    - <<<<<<<< (start of conflict)
+    - ======= (separator between versions)
+    - >>>>>>> (end of conflict)
+    
+    This catches Mergify backport PRs where conflicts are committed as text.
+    """
+    if not diff_content:
+        return False
+    
+    # Pattern to detect git conflict markers in diff
+    # We look for lines starting with + (added in the diff) containing conflict markers
+    lines = diff_content.split('\n')
+    for line in lines:
+        # Check for conflict markers (they appear in diff as +<<<<<<<, etc.)
+        if re.search(r'^\+.*?<<<<<<<|^\+.*?=======|^\+.*?>>>>>>>', line):
+            return True
+    
+    return False
+
+
+def has_conflicts(mergeable: Optional[bool], mergeable_state: str, has_markers: bool = False) -> bool:
+    """
+    Check if PR has conflicts based on mergeable state and conflict markers.
     
     According to GitHub API:
     - mergeable: false + mergeable_state: "dirty" = has merge conflicts
@@ -191,12 +249,18 @@ def has_conflicts(mergeable: Optional[bool], mergeable_state: str) -> bool:
     - mergeable_state: "blocked" = blocked by branch protection (not a conflict)
     - mergeable_state: "unstable" = failing checks (not a conflict)
     
-    We only mark PRs with actual merge conflicts (dirty state).
+    Additionally, checks for committed conflict markers (<<<<<<, =======, >>>>>>>) which
+    can appear in Mergify backport PRs where cherry-pick conflicts are committed as text.
+    
+    Returns True if:
+    1. GitHub detects merge conflicts (dirty state), OR
+    2. Conflict markers are found in the diff (Mergify backport case)
     """
-    return mergeable is False and mergeable_state == MERGEABLE_STATES["DIRTY"]
+    github_has_conflicts = mergeable is False and mergeable_state == MERGEABLE_STATES["DIRTY"]
+    return github_has_conflicts or has_markers
 
 
-def process_pr(api: GitHubAPI, pr: Dict[str, Any], conflict_label: str, max_retries: int, retry_delay: int) -> None:
+def process_pr(api: GitHubAPI, pr: Dict[str, Any], conflict_label: str, max_retries: int, retry_delay: int, owner: str, repo: str) -> None:
     """Process a single PR for conflict checking and label management."""
     pr_number = pr["number"]
     pr_title = pr["title"]
@@ -209,9 +273,15 @@ def process_pr(api: GitHubAPI, pr: Dict[str, Any], conflict_label: str, max_retr
     mergeable_state = pr_details.get("mergeable_state", "")
     current_labels = [label["name"] for label in pr_details.get("labels", [])]
     has_conflict_label = conflict_label in current_labels
-    pr_has_conflicts = has_conflicts(mergeable, mergeable_state)
+    
+    # Check for conflict markers in the diff (for Mergify backport PRs)
+    diff_content = get_pr_diff(owner, repo, pr_number)
+    has_markers = has_conflict_markers(diff_content) if diff_content else False
+    
+    pr_has_conflicts = has_conflicts(mergeable, mergeable_state, has_markers)
     
     log_info(f"  Mergeable: {mergeable}, State: {mergeable_state}")
+    log_info(f"  Conflict markers in diff: {has_markers}")
     log_info(f"  Has conflicts: {pr_has_conflicts}, Has label: {has_conflict_label}")
     
     if pr_has_conflicts and not has_conflict_label:
@@ -297,7 +367,7 @@ def main():
     # Process each PR
     for pr in prs_to_check:
         try:
-            process_pr(api, pr, conflict_label, max_retries, retry_delay)
+            process_pr(api, pr, conflict_label, max_retries, retry_delay, owner, repo)
         except Exception as e:
             log_error(f"  Error processing PR #{pr['number']}: {e}")
     
