@@ -219,7 +219,7 @@ def has_conflict_markers(diff_content: str) -> bool:
     Check if diff contains unresolved conflict markers.
     
     Detects markers used by git:
-    - <<<<<<<< (start of conflict)
+    - <<<<<<< (start of conflict)
     - ======= (separator between versions)
     - >>>>>>> (end of conflict)
     
@@ -249,7 +249,7 @@ def has_conflicts(mergeable: Optional[bool], mergeable_state: str, has_markers: 
     - mergeable_state: "blocked" = blocked by branch protection (not a conflict)
     - mergeable_state: "unstable" = failing checks (not a conflict)
     
-    Additionally, checks for committed conflict markers (<<<<<<, =======, >>>>>>>) which
+    Additionally, checks for committed conflict markers (<<<<<<<, =======, >>>>>>>) which
     can appear in Mergify backport PRs where cherry-pick conflicts are committed as text.
     
     Returns True if:
@@ -260,7 +260,7 @@ def has_conflicts(mergeable: Optional[bool], mergeable_state: str, has_markers: 
     return github_has_conflicts or has_markers
 
 
-def process_pr(api: GitHubAPI, pr: Dict[str, Any], conflict_label: str, max_retries: int, retry_delay: int, owner: str, repo: str) -> None:
+def process_pr(api: GitHubAPI, pr: Dict[str, Any], conflict_label: str, max_retries: int, retry_delay: int) -> None:
     """Process a single PR for conflict checking and label management."""
     pr_number = pr["number"]
     pr_title = pr["title"]
@@ -275,7 +275,7 @@ def process_pr(api: GitHubAPI, pr: Dict[str, Any], conflict_label: str, max_retr
     has_conflict_label = conflict_label in current_labels
     
     # Check for conflict markers in the diff (for Mergify backport PRs)
-    diff_content = get_pr_diff(owner, repo, pr_number)
+    diff_content = get_pr_diff(api.owner, api.repo, pr_number)
     has_markers = has_conflict_markers(diff_content) if diff_content else False
     
     pr_has_conflicts = has_conflicts(mergeable, mergeable_state, has_markers)
@@ -367,7 +367,7 @@ def main():
     # Process each PR
     for pr in prs_to_check:
         try:
-            process_pr(api, pr, conflict_label, max_retries, retry_delay, owner, repo)
+            process_pr(api, pr, conflict_label, max_retries, retry_delay)
         except Exception as e:
             log_error(f"  Error processing PR #{pr['number']}: {e}")
     
