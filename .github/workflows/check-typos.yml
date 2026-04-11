@@ -1,0 +1,77 @@
+---
+name: Typos Check Reusable
+
+on:
+  workflow_call:
+
+jobs:
+  typos:
+    runs-on: ubuntu-latest
+    env:
+      TYPOS_VERSION: 1.44.0
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.ref || github.ref }}
+
+      - name: Checkout .github repository
+        uses: actions/checkout@v6
+        with:
+          repository: vyos/.github
+          path: .github-repo
+
+      # Get changed files (robust)
+      - name: Get changed files
+        id: changed
+        uses: tj-actions/changed-files@v47
+        with:
+          separator: "\n"
+
+      # Cache cargo registry and built binaries
+      - name: Cache cargo
+        uses: actions/cache@v5.0.4
+        with:
+          path: ~/.cargo
+          key: ${{ runner.os }}-cargo-typos-${{ env.TYPOS_VERSION }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-typos-${{ env.TYPOS_VERSION }}-
+
+      # Install typos CLI
+      - name: Install typos CLI
+        run: |
+          # Install typos from crates.io using cargo with pinned version
+          cargo install typos-cli@${{ env.TYPOS_VERSION }}
+
+      # Run typos
+      - name: Run typos
+        id: typos
+        env:
+          FILES: ${{ steps.changed.outputs.all_changed_files }}
+        run: |
+          chmod +x .github-repo/scripts/check-typos.sh
+          .github-repo/scripts/check-typos.sh "$FILES" 2>&1
+
+      # Parse and format typos output to comment
+      - name: Process typos output
+        id: format_comments
+        if: always()
+        env:
+          COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+          REPO_URL: https://github.com/${{ github.repository }}
+        run: |
+          echo "=== Debug: Raw typos output ===" 
+          cat typos-output.json
+          echo "=== End raw output ==="
+          python3 .github-repo/scripts/process-typos.py
+
+      # Post comment with inline details (auto-updates on head changes)
+      - name: Add PR comment with typo details
+        if: always()
+        uses: mshick/add-pr-comment@v3
+        with:
+          message: ${{ steps.format_comments.outputs.message }}
+          message-id: "TYPOS_CHECK"
+          allow-repeats: false
