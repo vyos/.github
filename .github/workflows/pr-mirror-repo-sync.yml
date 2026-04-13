@@ -215,7 +215,7 @@ jobs:
           if [[ -z "$previous_merged_source_pr" ]]; then
             echo "No previous merged PR found for branch ${SYNC_BRANCH}"
           else 
-            echo "Previous merged source PR retrived ${previous_merged_source_pr}"
+            echo "Previous merged source PR retrieved ${previous_merged_source_pr}"
             pr_labels=$(gh pr view $previous_merged_source_pr --repo ${SOURCE_REPO} --json labels --jq '.labels | map(.name)')
             if [[ $pr_labels == *"${MIRROR_COMPLETED_LABEL}"* ]]; then
               echo "Found previous merged PR (#${previous_merged_source_pr}) mirrored"
@@ -231,9 +231,9 @@ jobs:
         run: |
           cd $checkout_folder
           pr_info=$(gh pr view $PR_NUMBER --repo $SOURCE_REPO --json commits,mergeCommit,body,title,labels,headRefOid)
-          echo "PR info retrived ${pr_info}"
+          echo "PR info retrieved ${pr_info}"
           last_commit=$(echo $pr_info | jq -r '.headRefOid')
-          echo "Last commit retrived from pr view ${last_commit}"
+          echo "Last commit retrieved from pr view ${last_commit}"
           merge_commit=$(echo $pr_info | jq -r '.mergeCommit.oid')
           pr_body=$(echo "$pr_info" | jq -j '.body')   # preserve indentation
           pr_title=$(echo $pr_info | jq -r '.title')
@@ -266,7 +266,7 @@ jobs:
             echo ""
             printf '%s\n' "$pr_body"   # exact preservation
           } > /tmp/pr_body.txt
-          echo "Last commit retrived ${last_commit}, Merge commit retrived ${merge_commit}, PR labels retrived ${pr_labels}"
+          echo "Last commit retrieved ${last_commit}, Merge commit retrieved ${merge_commit}, PR labels retrieved ${pr_labels}"
 
       - name: Create mirror PR head branch (temp feature branch)
         if: env.mirror_required == 'true'
@@ -291,7 +291,7 @@ jobs:
             --base $SYNC_BRANCH \
             --title "${title}" \
             --body-file /tmp/pr_body.txt)
-          echo "Created PR url retrived ${pr_url}"
+          echo "Created PR url retrieved ${pr_url}"
           pr_number=$(basename $pr_url)
           echo "mirror_pr_number=${pr_number}" >> $GITHUB_ENV
 
