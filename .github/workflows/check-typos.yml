@@ -13,11 +13,11 @@ jobs:
     steps:
 
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-          ref: ${{ github.event.pull_request.head.ref || github.ref }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
 
       - name: Checkout .github repository
         uses: actions/checkout@v6
@@ -25,12 +25,15 @@ jobs:
           repository: vyos/.github
           path: .github-repo
 
-      # Get changed files (robust)
+      # Get changed files
       - name: Get changed files
-        id: changed
-        uses: tj-actions/changed-files@v47
+        id: file-filter
+        uses: dorny/paths-filter@v3
         with:
-          separator: "\n"
+          list-files: shell
+          filters: |
+            all:
+              - '**'
 
       # Cache cargo registry and built binaries
       - name: Cache cargo
@@ -49,8 +52,9 @@ jobs:
       # Run typos
       - name: Run typos
         id: typos
+        if: steps.file-filter.outputs.all == 'true'
         env:
-          FILES: ${{ steps.changed.outputs.all_changed_files }}
+          FILES: ${{ steps.file-filter.outputs.all_files }}
         run: |
           chmod +x .github-repo/scripts/check-typos.sh
           .github-repo/scripts/check-typos.sh "$FILES" 2>&1
