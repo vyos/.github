@@ -49,6 +49,11 @@ jobs:
           # Install typos from crates.io using cargo with pinned version
           cargo install typos-cli@${{ env.TYPOS_VERSION }}
 
+      # Clean up previous run artifacts
+      - name: Clean up previous results
+        run: |
+          rm -f typos-output.json
+
       # Run typos
       - name: Run typos
         id: typos
