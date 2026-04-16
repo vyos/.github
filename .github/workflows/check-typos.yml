@@ -67,6 +67,9 @@ jobs:
           COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
           REPO_URL: https://github.com/${{ github.repository }}
         run: |
+          echo "=== Debug: Raw typos output ===" 
+          cat typos-output.json
+          echo "=== End raw output ==="
           python3 .github-repo/scripts/process-typos.py
 
       # Post comment with inline details (auto-updates on head changes)
