@@ -54,6 +54,22 @@ jobs:
         run: |
           rm -f typos-output.json
 
+      # Debug: Print changed files and their content
+      - name: Debug - Print changed files
+        if: steps.file-filter.outputs.all == 'true'
+        env:
+          FILES: ${{ steps.file-filter.outputs.all_files }}
+        run: |
+          echo "=== Changed files ==="
+          echo "$FILES"
+          echo "=== File contents ==="
+          for file in $FILES; do
+            if [ -f "$file" ]; then
+              echo "--- $file ---"
+              head -20 "$file"
+            fi
+          done
+
       # Run typos
       - name: Run typos
         id: typos
