@@ -4,9 +4,6 @@
   on:
     workflow_call:
 
-  env:
-    GH_TOKEN: ${{ secrets.PAT }}
-  
   jobs:
     check-pr-title:
       name: Check pull request title
@@ -17,15 +14,17 @@
       steps:
         - uses: actions/checkout@v3
           timeout-minutes: 2
-    
+
         - name: Checkout reusable actions repo
           uses: actions/checkout@v3
           with:
             repository: vyos/.github
             path: reusable-actions
-  
+
         - name: Check the PR title
           timeout-minutes: 2
+          env:
+            GH_TOKEN: ${{ github.token }}
           run: |
             source_pr_title=$(gh pr view "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --json title -q .title)
             if echo "$source_pr_title" | grep -Pq '^(([a-zA-Z0-9\-_.]+:\s)?)T\d+:\s+[^\s]+.*'; then
@@ -40,6 +39,8 @@
         
         - name: Check commit messages
           timeout-minutes: 2
+          env:
+            GH_TOKEN: ${{ github.token }}
           run: |
             # Fetch commit messages
             commits=$(gh pr view "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --json commits -q '.commits[].messageHeadline')
