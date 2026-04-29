@@ -56,7 +56,3 @@ Mirror twin: `VyOS-Networks/.github`. Canonical side is **here** (`vyos/.github`
 - Onboarding a repo to the mirror pipeline: see `PRMirrorOnboarding.md`.
 - Architecture & cross-org drift inventory: Confluence 792723546. GHA security hardening spec: 795344927. GHE baseline audit: 795967489.
 - The repo's own existing in-tree `CLAUDE.md` (project-root) is more detailed; treat it as the authoritative working document.
-
----
-
-This file is mirrored on Confluence: [`vyos/.github`](https://internal.confluence.vyos.com/wiki/spaces/VYOS/pages/818184498). The Confluence page also carries the per-repo audit data (settings, workflows, secret counts, hygiene) that complements this CLAUDE.md. Edit either side; resync via the documentation pipeline.
