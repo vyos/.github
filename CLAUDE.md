@@ -6,7 +6,7 @@ Org-wide community-health repo for the `vyos` GitHub organisation. Hosts the can
 
 ## Tech stack
 
-- GitHub Actions YAML (19 reusable workflows under `.github/workflows/`).
+- GitHub Actions YAML (18 reusable `workflow_call` workflows + 1 regular workflow (`cla-check.yml`) under `.github/workflows/`).
 - Python helpers (`scripts/check-pr-conflicts.py`, `scripts/process-typos.py`, `.github/doc-linter.py`, `scripts/override-default`, `scripts/transclude-template`).
 - Minimal Python deps in `scripts/requirements.txt` (`requests>=2.32.0,<3.0.0`); `lxml` is pulled by consumer repos for the XML preprocessors.
 - Shell helper (`scripts/check-typos.sh`) wrapping the `typos` CLI.
@@ -42,7 +42,7 @@ This repo is the canonical workflow library for both orgs. Consumers reference w
 - Commit / PR title format: `component: T12345: description`. Phorge task ID at https://vyos.dev mandatory. Enforced by `check-pr-message.yml` on the PR title and every commit.
 - Branch model: `current` (rolling, default), `circinus` (1.5 LTS), `sagitta` (1.4 LTS), `equuleus` (1.3 LTS); `add-pr-labels.yml` maps base branch → label.
 - Backports: `@Mergifyio backport <branch>` (built-in Mergify command). The mirror pipeline injects these from `bp/<branch>` source labels.
-- Workflows here must be reusable (`workflow_call`); never add a non-reusable workflow.
+- Workflows here must be reusable (`workflow_call`); avoid adding non-reusable workflows unless necessary (the only current exception is `cla-check.yml`, which uses `pull_request_target`).
 - Most jobs include a `bullfrogsec/bullfrog@v0.8.4` egress-audit step (non-fatal).
 - Bot identity for cross-org mutations: `vyosbot` via org-level `PAT` and `REMOTE_OWNER` secrets.
 
@@ -55,4 +55,4 @@ Mirror twin: `VyOS-Networks/.github`. Canonical side is **here** (`vyos/.github`
 - Any change merged to `current` ships to every consumer immediately. Test from a feature branch first via `uses: ...@<branch>`.
 - Onboarding a repo to the mirror pipeline: see `PRMirrorOnboarding.md`.
 - Architecture & cross-org drift inventory: Confluence 792723546. GHA security hardening spec: 795344927. GHE baseline audit: 795967489.
-- The repo's own existing in-tree `CLAUDE.md` (project-root) is more detailed; treat it as the authoritative working document.
+- This file (`CLAUDE.md`) is the authoritative working document for AI agents and contributors; keep it updated when conventions or layout change.
