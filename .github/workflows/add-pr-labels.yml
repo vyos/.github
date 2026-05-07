@@ -19,11 +19,11 @@ jobs:
           egress-policy: audit
 
       - name: Checkout reusable actions repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v6
         with:
           repository: vyos/.github
           path: reusable-actions
-      - uses: actions/labeler@v5
+      - uses: actions/labeler@v6
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           configuration-path: ./reusable-actions/.github/labeler.yml

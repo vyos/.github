@@ -320,7 +320,7 @@ jobs:
           echo "Waiting 10 seconds for GitHub to propagate merge refs..."
           sleep 10
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         if: env.mirror_required == 'true'
         with:
           persist-credentials: false

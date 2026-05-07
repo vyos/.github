@@ -16,14 +16,14 @@ jobs:
     steps:
 
       - name: Checkout pull request merge ref
-        uses: actions/checkout@v3
+        uses: actions/checkout@v6
         with:
           ref: refs/pull/${{ github.event.pull_request.number }}/merge
           repository: ${{ github.event.pull_request.base.repo.full_name }}
 
       - name: Get changed files
         id: changed-files
-        uses: actions/github-script@v4
+        uses: actions/github-script@v9
         with:
           script: |
             const prNumber = context.payload.pull_request.number;
@@ -45,7 +45,7 @@ jobs:
 
       - name: Set up Python
         if: ${{ env.CHANGED_PY_FILES != '' }}
-        uses: actions/setup-python@v3
+        uses: actions/setup-python@v6
         with:
           python-version: 3.11
 
