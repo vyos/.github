@@ -19,7 +19,7 @@ No build system, test suite, or lockfile. To exercise a workflow before merging,
 pip install -r scripts/requirements.txt
 GITHUB_TOKEN=... GITHUB_REPOSITORY=vyos/.github GITHUB_EVENT_NAME=schedule \
   python scripts/check-pr-conflicts.py
-python .github/doc-linter.py "['path/to/file.rst']"
+python.github/doc-linter.py "['path/to/file.rst']"
 python scripts/override-default <xml-dir>
 python scripts/transclude-template <file.xml>
 ```
@@ -52,7 +52,7 @@ Mirror twin: `VyOS-Networks/.github`. Canonical side is **here** (`vyos/.github`
 
 ## Notes for future contributors
 
-- Any change merged to `current` ships to every consumer immediately. Test from a feature branch first via `uses: ...@<branch>`.
+- Any change merged to `current` ships to every consumer immediately. Test from a feature branch first via `uses:...@<branch>`.
 - Onboarding a repo to the mirror pipeline: see `PRMirrorOnboarding.md`.
 - Architecture & cross-org drift inventory: Confluence 792723546. GHA security hardening spec: 795344927. GHE baseline audit: 795967489.
 - This file (`CLAUDE.md`) is the authoritative working document for AI agents and contributors; keep it updated when conventions or layout change.
