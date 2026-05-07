@@ -7,10 +7,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
-      uses: actions/checkout@v3
+      uses: actions/checkout@v6
 
     - name: Checkout reusable workflows repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v6
       with:
         repository: vyos/.github
         path: reusable-workflows
@@ -21,7 +21,7 @@ jobs:
       uses: trilom/file-changes-action@v1.2.4
 
     - name: Set up Python
-      uses: actions/setup-python@v2
+      uses: actions/setup-python@v6
       with:
         python-version: '3.x'
 

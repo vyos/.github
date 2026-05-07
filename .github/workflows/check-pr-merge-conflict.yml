@@ -30,14 +30,14 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout .github repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: vyos/.github
           ref: ${{ inputs.action-ref }}
           path: .github-repo
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.x'
 
