@@ -2,7 +2,7 @@
 
 ## Project purpose
 
-Org-wide community-health repo for the `vyos` GitHub organisation. Hosts the canonical reusable GitHub Actions workflows (`workflow_call`) consumed by every `vyos/*` repo and many `VyOS-Networks/*` repos, plus PR-validation, doc-linter, typo-checker, and XML preprocessor scripts. Default branch is `current`; changes ship to all consumers immediately — no semver, no release process.
+Org-wide community-health repo for the `vyos` GitHub organisation. Hosts the canonical reusable GitHub Actions workflows (`workflow_call`) consumed by every `vyos/*` repo, plus PR-validation, doc-linter, typo-checker, and XML preprocessor scripts. Default branch is `current`; changes ship to all consumers immediately — no semver, no release process.
 
 ## Tech stack
 
@@ -35,7 +35,7 @@ python scripts/transclude-template <file.xml>
 
 ## Cross-repo context
 
-This repo is the canonical workflow library for both orgs. Consumers reference workflows as `uses: vyos/.github/.github/workflows/<name>.yml@current` with no version pin. The mirror pipeline (`pr-mirror-repo-sync.yml`) is currently live for `vyos-1x`, `vyos-build`, `vyos-utils`, and `vyos1x-config`. Sibling `VyOS-Networks/.github` (default branch `git-actions`) is drifted; nine workflows on its `git-actions` branch are staged-but-inactive (zero runs). `vyos/vyos-cla-signatures` provides the CLA reusable. `vyos-documentation` consumes `lint-doc.yml` (which runs `.github/doc-linter.py`).
+This repo is the canonical workflow library for both orgs. Consumers reference workflows as `uses: vyos/.github/.github/workflows/<name>.yml@current` with no version pin. The mirror pipeline (`pr-mirror-repo-sync.yml`) is currently live for `vyos-1x`, `vyos-build`, `vyos-utils`, and `vyos1x-config`. `vyos/vyos-cla-signatures` provides the CLA reusable. `vyos-documentation` consumes `lint-doc.yml` (which runs `.github/doc-linter.py`).
 
 ## Conventions
 
@@ -45,10 +45,6 @@ This repo is the canonical workflow library for both orgs. Consumers reference w
 - Workflows here must be reusable (`workflow_call`); avoid adding non-reusable workflows unless necessary (the only current exception is `cla-check.yml`, which uses `pull_request_target`).
 - Most jobs include a `bullfrogsec/bullfrog@v0.8.4` egress-audit step (non-fatal).
 - Bot identity for cross-org mutations: `vyosbot` via org-level `PAT` and `REMOTE_OWNER` secrets.
-
-## Mirror relationship
-
-Mirror twin: `VyOS-Networks/.github`. Canonical side is **here** (`vyos/.github`). The twin is drifted; do not assume parity. Cross-org sync design lives at Confluence page 794394642.
 
 ## Notes for future contributors
 
