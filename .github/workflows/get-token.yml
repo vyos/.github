@@ -15,12 +15,20 @@ on:
         required: true
         type: string
       repositories:
-        description: 'Optional comma- or newline-separated list of repos for sub-installation token (default: all in installation)'
+        description: >
+          Optional comma- or newline-separated list of repos to scope the token to.
+          Leave empty (default) to grant access to all repositories in the installation.
+          Note: passing an empty string is equivalent to omitting the field.
         required: false
         type: string
         default: ''
       permissions:
-        description: 'Optional JSON object of fine-grained permissions for least-privilege scoping'
+        description: >
+          Optional JSON object of fine-grained permission overrides.
+          Only the following keys are honoured by this workflow:
+          contents, pull_requests, issues, workflows, metadata.
+          Any other keys are silently ignored. Example:
+          {"contents":"read","metadata":"read"}
         required: false
         type: string
         default: ''
@@ -32,6 +40,7 @@ on:
 jobs:
   mint:
     runs-on: ubuntu-latest
+    permissions: {}  # This job uses App credentials only; github.token is not needed.
     outputs:
       token: ${{ steps.app-token.outputs.token }}
     steps:
