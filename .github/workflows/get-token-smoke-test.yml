@@ -1,0 +1,41 @@
+# Smoke test for get-token.yml — manual dispatch only. Mints a token for the
+# specified org installation and asserts it was issued. Token value is masked.
+name: get-token smoke test
+
+on:
+  workflow_dispatch:
+    inputs:
+      owner:
+        description: 'Org to mint for: vyos or VyOS-Networks'
+        required: true
+        type: choice
+        options: [vyos, VyOS-Networks]
+
+permissions:
+  contents: read
+
+jobs:
+  mint:
+    uses: ./.github/workflows/get-token.yml
+    with:
+      owner: ${{ inputs.owner }}
+    secrets: inherit
+
+  verify:
+    needs: mint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm token was minted
+        # Pass workflow context via env vars so the shell sees them as $VAR rather
+        # than interpolating directly into the script body — workflow-injection
+        # hardening per https://github.blog/security/vulnerability-research/how-to-catch-github-actions-workflow-injections-before-attackers-do/
+        env:
+          OWNER: ${{ inputs.owner }}
+          TOKEN: ${{ needs.mint.outputs.token }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            echo "Token minted successfully for owner=${OWNER} (value masked)"
+          else
+            echo "::error::Token was empty"
+            exit 1
+          fi

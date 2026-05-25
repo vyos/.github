@@ -1,0 +1,58 @@
+# get-token.yml — reusable workflow that mints a GitHub App installation token
+# for a specified org installation.
+#
+# Spec: ~/.claude/specs/2026-05-16-mirror-pipeline-redesign-design.md §4.2.2
+# Plan: ~/.claude/plans/2026-05-16-mirror-pipeline-rollout-1-pat-to-app-migration.md Task 4
+#
+# IMPORTANT: skip-token-revoke is set to true so the minted token survives
+# beyond this reusable job's lifetime and can be consumed by downstream jobs
+# via `needs.<mint-job>.outputs.token`. GitHub App installation tokens have a
+# 1-hour TTL regardless; this just disables the action's at-job-end revoke.
+name: Mint App Installation Token
+
+on:
+  workflow_call:
+    inputs:
+      owner:
+        description: 'Org / user that owns the App installation (vyos or VyOS-Networks)'
+        required: true
+        type: string
+      repositories:
+        description: 'Optional comma- or newline-separated list of repos for sub-installation token (default: all in installation)'
+        required: false
+        type: string
+        default: ''
+      permissions:
+        description: 'Optional JSON object of fine-grained permissions for least-privilege scoping'
+        required: false
+        type: string
+        default: ''
+    outputs:
+      token:
+        description: 'Installation token (masked in logs)'
+        value: ${{ jobs.mint.outputs.token }}
+
+jobs:
+  mint:
+    runs-on: ubuntu-latest
+    outputs:
+      token: ${{ steps.app-token.outputs.token }}
+    steps:
+      - name: Mint installation token
+        id: app-token
+        # Pinned to SHA per GitHub Actions security best practice.
+        # Tag at time of pinning: v3.2.0 (released 2026-05-12). Recorded in
+        # /tmp/rollout-1/state.txt at plan Task 4 Step 2.
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ inputs.owner }}
+          repositories: ${{ inputs.repositories }}
+          skip-token-revoke: true
+          # Permission overrides are passed through if provided; empty string means use installation defaults.
+          permission-contents: ${{ fromJSON(inputs.permissions || '{}').contents || '' }}
+          permission-pull-requests: ${{ fromJSON(inputs.permissions || '{}').pull_requests || '' }}
+          permission-issues: ${{ fromJSON(inputs.permissions || '{}').issues || '' }}
+          permission-workflows: ${{ fromJSON(inputs.permissions || '{}').workflows || '' }}
+          permission-metadata: ${{ fromJSON(inputs.permissions || '{}').metadata || '' }}
