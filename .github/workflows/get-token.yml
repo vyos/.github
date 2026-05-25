@@ -44,6 +44,11 @@ jobs:
     outputs:
       token: ${{ steps.app-token.outputs.token }}
     steps:
+      - name: Egress audit
+        continue-on-error: true
+        uses: bullfrogsec/bullfrog@v0.8.4
+        with:
+          egress-policy: audit
       - name: Mint installation token
         id: app-token
         # Pinned to SHA per GitHub Actions security best practice.

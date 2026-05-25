@@ -25,6 +25,11 @@ jobs:
     needs: mint
     runs-on: ubuntu-latest
     steps:
+      - name: Egress audit
+        continue-on-error: true
+        uses: bullfrogsec/bullfrog@v0.8.4
+        with:
+          egress-policy: audit
       - name: Confirm token was minted
         # Pass workflow context via env vars so the shell sees them as $VAR rather
         # than interpolating directly into the script body — workflow-injection
