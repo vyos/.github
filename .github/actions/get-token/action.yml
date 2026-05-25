@@ -1,0 +1,76 @@
+# action.yml — composite action that mints a GitHub App installation token.
+#
+# Spec: ~/.claude/specs/2026-05-16-mirror-pipeline-redesign-design.md §4.2.2
+# Plan: ~/.claude/plans/2026-05-16-mirror-pipeline-rollout-1-pat-to-app-migration.md Task 4
+#
+# Design pivot from the reusable-workflow form: GitHub Actions strips reusable
+# workflow outputs that contain secret-masked values ("Skip output 'token' since
+# it may contain secret"), so the prior `.github/workflows/get-token.yml` form
+# produced empty tokens at the consumer boundary. Composite actions run as
+# steps inside the caller job — the token stays in-job, no output-boundary
+# masking — so this form works.
+#
+# Composite actions cannot directly access `secrets.X`; callers must pass the
+# private key explicitly via `private-key:` input. `client-id` is similarly an
+# explicit input rather than an internal `vars.APP_CLIENT_ID` reference so the
+# action is self-documenting about what the caller needs to provide.
+#
+# IMPORTANT: the underlying action sets `skip-token-revoke: true` so the token
+# survives beyond this step's lifetime (the GitHub App installation token TTL
+# is 1 hour regardless; this just disables the action's at-step-end revoke).
+
+name: Get GitHub App Installation Token
+description: Mint a GitHub App installation token via actions/create-github-app-token (composite form, single-job pattern).
+
+inputs:
+  owner:
+    description: 'Org / user that owns the App installation (vyos or VyOS-Networks).'
+    required: true
+  client-id:
+    description: 'GitHub App client ID. Callers in this org pass ${{ vars.APP_CLIENT_ID }}.'
+    required: true
+  private-key:
+    description: 'GitHub App private key (PEM). Callers in this org pass ${{ secrets.APP_PRIVATE_KEY }}. Composite actions cannot read secrets directly; must be threaded via input.'
+    required: true
+  repositories:
+    description: >
+      Optional comma- or newline-separated list of repos to scope the token to.
+      Leave empty (default) to grant access to all repositories in the installation.
+      Note: passing an empty string is equivalent to omitting the field.
+    required: false
+    default: ''
+  permissions:
+    description: >
+      Optional JSON object of fine-grained permission overrides.
+      Only the following keys are honoured by this action:
+      contents, pull_requests, issues, workflows, metadata.
+      Any other keys are silently ignored. Example:
+      {"contents":"read","metadata":"read"}
+    required: false
+    default: ''
+
+outputs:
+  token:
+    description: 'Installation token (masked in logs). Consume via ${{ steps.<id>.outputs.token }} in subsequent steps of the same job.'
+    value: ${{ steps.app-token.outputs.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Mint installation token
+      id: app-token
+      # Pinned to SHA per GitHub Actions security best practice.
+      # Tag at time of pinning: v3.2.0 (released 2026-05-12).
+      uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
+      with:
+        client-id: ${{ inputs.client-id }}
+        private-key: ${{ inputs.private-key }}
+        owner: ${{ inputs.owner }}
+        repositories: ${{ inputs.repositories }}
+        skip-token-revoke: true
+        # Permission overrides; empty string means use installation defaults.
+        permission-contents: ${{ fromJSON(inputs.permissions || '{}').contents || '' }}
+        permission-pull-requests: ${{ fromJSON(inputs.permissions || '{}').pull_requests || '' }}
+        permission-issues: ${{ fromJSON(inputs.permissions || '{}').issues || '' }}
+        permission-workflows: ${{ fromJSON(inputs.permissions || '{}').workflows || '' }}
+        permission-metadata: ${{ fromJSON(inputs.permissions || '{}').metadata || '' }}

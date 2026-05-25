@@ -1,5 +1,14 @@
-# Smoke test for get-token.yml — manual dispatch only. Mints a token for the
-# specified org installation and asserts it was issued. Token value is masked.
+# Smoke test for the get-token composite action — manual dispatch only.
+# Mints a token for the specified org installation and asserts it was issued.
+# Token value is masked.
+#
+# Single-job composite-action pattern. The prior reusable-workflow form
+# (.github/workflows/get-token.yml) failed in production at vyos/.github#124
+# because GitHub Actions strips reusable-workflow outputs that contain
+# secret-masked values ("Skip output 'token' since it may contain secret"),
+# leaving an empty token at the consumer boundary. Composite actions run as
+# steps inside the caller job — no output-boundary masking.
+
 name: get-token smoke test
 
 on:
@@ -15,14 +24,7 @@ permissions:
   contents: read
 
 jobs:
-  mint:
-    uses: ./.github/workflows/get-token.yml
-    with:
-      owner: ${{ inputs.owner }}
-    secrets: inherit
-
-  verify:
-    needs: mint
+  smoke:
     runs-on: ubuntu-latest
     steps:
       - name: Egress audit
@@ -30,13 +32,26 @@ jobs:
         uses: bullfrogsec/bullfrog@v0.8.4
         with:
           egress-policy: audit
+      # Composite actions referenced via `./` path require the repo to be
+      # checked out so the action's metadata is on the runner filesystem.
+      - name: Checkout (for composite action lookup)
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Mint installation token
+        id: token
+        uses: ./.github/actions/get-token
+        with:
+          owner: ${{ inputs.owner }}
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
       - name: Confirm token was minted
         # Pass workflow context via env vars so the shell sees them as $VAR rather
         # than interpolating directly into the script body — workflow-injection
         # hardening per https://github.blog/security/vulnerability-research/how-to-catch-github-actions-workflow-injections-before-attackers-do/
         env:
           OWNER: ${{ inputs.owner }}
-          TOKEN: ${{ needs.mint.outputs.token }}
+          TOKEN: ${{ steps.token.outputs.token }}
         run: |
           if [ -n "$TOKEN" ]; then
             echo "Token minted successfully for owner=${OWNER} (value masked)"
