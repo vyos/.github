@@ -18,6 +18,13 @@
 # IMPORTANT: the underlying action sets `skip-token-revoke: true` so the token
 # survives beyond this step's lifetime (the GitHub App installation token TTL
 # is 1 hour regardless; this just disables the action's at-step-end revoke).
+#
+# GOTCHA when editing: do NOT include ${{ }} expression syntax inside the
+# `description:` string fields below — even as documentation examples. GHA
+# evaluates expression syntax wherever it appears, including in description
+# strings, and rejects the action manifest with "Unrecognized named-value".
+# Use plain prose ("vars.APP_CLIENT_ID") instead of ${{ vars.APP_CLIENT_ID }}.
+# (Caught at job runtime; static lint does not catch it.)
 
 name: Get GitHub App Installation Token
 description: Mint a GitHub App installation token via actions/create-github-app-token (composite form, single-job pattern).
@@ -27,10 +34,10 @@ inputs:
     description: 'Org / user that owns the App installation (vyos or VyOS-Networks).'
     required: true
   client-id:
-    description: 'GitHub App client ID. Callers in this org pass ${{ vars.APP_CLIENT_ID }}.'
+    description: 'GitHub App client ID. Callers in this org pass vars.APP_CLIENT_ID (do not expand inline; pass the expression at the call site).'
     required: true
   private-key:
-    description: 'GitHub App private key (PEM). Callers in this org pass ${{ secrets.APP_PRIVATE_KEY }}. Composite actions cannot read secrets directly; must be threaded via input.'
+    description: 'GitHub App private key (PEM). Callers in this org pass secrets.APP_PRIVATE_KEY. Composite actions cannot read secrets directly; must be threaded via input.'
     required: true
   repositories:
     description: >
@@ -51,7 +58,7 @@ inputs:
 
 outputs:
   token:
-    description: 'Installation token (masked in logs). Consume via ${{ steps.<id>.outputs.token }} in subsequent steps of the same job.'
+    description: 'Installation token (masked in logs). Consume via steps.<id>.outputs.token in subsequent steps of the same job.'
     value: ${{ steps.app-token.outputs.token }}
 
 runs:
