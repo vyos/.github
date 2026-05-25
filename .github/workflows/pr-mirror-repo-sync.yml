@@ -8,19 +8,12 @@ on:
         required: false
         type: string
         default: 'current'
-    secrets:
-      PAT:
-        required: true
-      REMOTE_OWNER:
-        required: true 
 
 run-name: Mirror PRs from ${{ github.event.inputs.sync_branch || github.event.pull_request.base.ref }} branch
 
 env:
   SYNC_BRANCH: ${{ github.event.inputs.sync_branch || github.event.pull_request.base.ref }}
-  TARGET_REPO: ${{ secrets.REMOTE_OWNER }}/${{ github.event.repository.name }}
-  GH_TOKEN: ${{ secrets.PAT }}
-  GITHUB_TOKEN: ${{ secrets.PAT }}
+  TARGET_REPO: ${{ vars.REMOTE_OWNER }}/${{ github.event.repository.name }}
   SOURCE_REPO: ${{ github.repository }}
   MIRROR_INITIATED_LABEL: 'mirror-initiated'
   MIRROR_COMPLETED_LABEL: 'mirror-completed'
@@ -48,7 +41,17 @@ jobs:
         with:
           egress-policy: audit
 
+      - id: source-token
+        uses: vyos/.github/.github/actions/get-token@current
+        with:
+          owner: vyos
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
       - name: Check first mirror
+        env:
+          GH_TOKEN: ${{ steps.source-token.outputs.token }}
+          GITHUB_TOKEN: ${{ steps.source-token.outputs.token }}
         run: |
           completion_labels_found=$(gh pr list --repo ${SOURCE_REPO} --state closed --json labels --jq "any(.[]; .labels[].name == \"${MIRROR_COMPLETED_LABEL}\")")
           if [[ "$completion_labels_found" == "true" ]]; then
@@ -61,10 +64,14 @@ jobs:
         if: env.first_mirror == 'false'
         id: get-last-mirrored-date
         uses: actions/github-script@v6
+        env:
+          GH_TOKEN: ${{ steps.source-token.outputs.token }}
+          GITHUB_TOKEN: ${{ steps.source-token.outputs.token }}
         with:
+          github-token: ${{ steps.source-token.outputs.token }}
           script: |
             const { execSync } = require('child_process');
-            
+
             const sourceRepo = process.env.SOURCE_REPO;
             const baseRef = process.env.SYNC_BRANCH;
             const mirrorCompletedLabel = process.env.MIRROR_COMPLETED_LABEL;
@@ -96,7 +103,11 @@ jobs:
       - name: Get unmirrored PRs
         id: get-unmirrored-prs
         uses: actions/github-script@v6
+        env:
+          GH_TOKEN: ${{ steps.source-token.outputs.token }}
+          GITHUB_TOKEN: ${{ steps.source-token.outputs.token }}
         with:
+          github-token: ${{ steps.source-token.outputs.token }}
           script: |
             const { execSync } = require('child_process');
             const isFirstMirror = process.env.first_mirror;
@@ -122,7 +133,7 @@ jobs:
                 --limit 500 \
                 --json "number,mergedAt,labels" \
                 --jq 'map(select(
-                  (.mergedAt > "${lastMirroredDate}") and 
+                  (.mergedAt > "${lastMirroredDate}") and
                   (all(.labels[].name; . != "${mirrorCompletedLabel}" and . != "${mirrorInitiatedLabel}"))
                 )) | sort_by(.mergedAt) | .[].number'`;
             }
@@ -152,7 +163,23 @@ jobs:
       PR_NUMBER: ${{ matrix.pr_number }}
     steps:
 
+      - id: source-token
+        uses: vyos/.github/.github/actions/get-token@current
+        with:
+          owner: vyos
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - id: target-token
+        uses: vyos/.github/.github/actions/get-token@current
+        with:
+          owner: VyOS-Networks
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
       - name: Check PR mirror required
+        env:
+          GH_TOKEN: ${{ steps.source-token.outputs.token }}
         run: |
           pr_labels=$(gh pr view $PR_NUMBER --repo $SOURCE_REPO --json labels --jq '.labels | map(.name)')
           if [[ $pr_labels == *"${MIRROR_COMPLETED_LABEL}"* ]] || [[ $pr_labels == *"${MIRROR_INITIATED_LABEL}"* ]]; then
@@ -165,6 +192,8 @@ jobs:
       - name: Add mirror-initiated label
         if: env.mirror_required == 'true'
         shell: bash
+        env:
+          GH_TOKEN: ${{ steps.source-token.outputs.token }}
         run: |
           label_name="${MIRROR_INITIATED_LABEL}"
 
@@ -191,12 +220,14 @@ jobs:
           git config --global user.email "action@github.com"
           git config --global user.name "GitHub Action"
           git init
-          git remote add origin https://x-access-token:${{ secrets.PAT }}@github.com/${SOURCE_REPO}.git
+          git remote add origin https://x-access-token:${{ steps.source-token.outputs.token }}@github.com/${SOURCE_REPO}.git
           git fetch
           git checkout -b $SYNC_BRANCH
 
       - name: Check first mirror
         if: env.mirror_required == 'true'
+        env:
+          GH_TOKEN: ${{ steps.source-token.outputs.token }}
         run: |
           completion_labels_found=$(gh pr list --repo ${SOURCE_REPO} --state closed --json labels --jq "any(.[]; .labels[].name == \"${MIRROR_COMPLETED_LABEL}\")")
           if [[ "$completion_labels_found" == "true" ]]; then
@@ -207,6 +238,8 @@ jobs:
 
       - name: Check previous merged PR mirrored
         if: env.mirror_required == 'true' && env.first_mirror == 'false'
+        env:
+          GH_TOKEN: ${{ steps.source-token.outputs.token }}
         run: |
           # Get the merge date of the given PR
           merge_date=$(gh pr view $PR_NUMBER --repo ${SOURCE_REPO} --json mergedAt --jq '.mergedAt')
@@ -214,7 +247,7 @@ jobs:
           previous_merged_source_pr=$(gh pr list --repo ${SOURCE_REPO} --base "${SYNC_BRANCH}" --state merged --json number,mergedAt --jq 'map(select(.mergedAt < "'"$merge_date"'")) | max_by(.mergedAt) | .number')
           if [[ -z "$previous_merged_source_pr" ]]; then
             echo "No previous merged PR found for branch ${SYNC_BRANCH}"
-          else 
+          else
             echo "Previous merged source PR retrieved ${previous_merged_source_pr}"
             pr_labels=$(gh pr view $previous_merged_source_pr --repo ${SOURCE_REPO} --json labels --jq '.labels | map(.name)')
             if [[ $pr_labels == *"${MIRROR_COMPLETED_LABEL}"* ]]; then
@@ -228,6 +261,8 @@ jobs:
 
       - name: Get source PR info
         if: env.mirror_required == 'true'
+        env:
+          GH_TOKEN: ${{ steps.source-token.outputs.token }}
         run: |
           cd $checkout_folder
           pr_info=$(gh pr view $PR_NUMBER --repo $SOURCE_REPO --json commits,mergeCommit,body,title,labels,headRefOid)
@@ -270,6 +305,8 @@ jobs:
 
       - name: Create mirror PR head branch (temp feature branch)
         if: env.mirror_required == 'true'
+        env:
+          GH_TOKEN: ${{ steps.target-token.outputs.token }}
         run: |
           pr_head_branch="mirror/${SYNC_BRANCH}/${PR_NUMBER}"
           echo "pr_head_branch=${pr_head_branch}" >> $GITHUB_ENV
@@ -278,11 +315,13 @@ jobs:
           fi
           cd $checkout_folder
           git checkout -b $pr_head_branch $last_commit
-          git remote add target https://x-access-token:${{ secrets.PAT }}@github.com/${TARGET_REPO}.git
+          git remote add target https://x-access-token:${{ steps.target-token.outputs.token }}@github.com/${TARGET_REPO}.git
           git push target $pr_head_branch
 
       - name: Create mirror PR
         if: env.mirror_required == 'true'
+        env:
+          GH_TOKEN: ${{ steps.target-token.outputs.token }}
         run: |
           title="${pr_title} (mirror ${PR_NUMBER})"
           pr_url=$(gh pr create \
@@ -297,6 +336,8 @@ jobs:
 
       - name: Add mirror PR backport
         if: env.mirror_required == 'true'
+        env:
+          GH_TOKEN: ${{ steps.target-token.outputs.token }}
         run: |
           IFS=',' read -r -a labels <<< "$pr_labels"
           for label in "${labels[@]}"; do
@@ -311,6 +352,8 @@ jobs:
 
       - name: Merge mirror PR
         if: env.mirror_required == 'true'
+        env:
+          GH_TOKEN: ${{ steps.target-token.outputs.token }}
         run: |
           gh pr merge --repo ${TARGET_REPO} --merge $mirror_pr_number
 
@@ -326,16 +369,22 @@ jobs:
           persist-credentials: false
           repository: ${{ env.TARGET_REPO }}
           ref: ${{ env.SYNC_BRANCH }}
-          token: ${{ env.GITHUB_TOKEN }}
+          token: ${{ steps.target-token.outputs.token }}
 
       - name: Repo sync source repo PR commit
         if: env.mirror_required == 'true'
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ steps.target-token.outputs.token }}
         run: |
           set -e
           source_repo_url="https://github.com/${SOURCE_REPO}.git"
           git config --unset-all http."https://github.com/".extraheader || :
-          git remote set-url origin "https://$GITHUB_ACTOR:$GITHUB_TOKEN@github.com/${TARGET_REPO}"
+          # Use x-access-token literal as username (App installation token requires
+          # this form per GitHub docs; PAT historically accepted $GITHUB_ACTOR as
+          # username so the prior form worked under PAT, but App tokens require
+          # the documented x-access-token literal).
+          git remote set-url origin "https://x-access-token:$GITHUB_TOKEN@github.com/${TARGET_REPO}"
           git remote add tmp_source "$source_repo_url"
           git fetch tmp_source --quiet
           git push origin "${last_commit}:refs/heads/${SYNC_BRANCH}" --force
@@ -345,6 +394,8 @@ jobs:
       - name: Add process labels to source PR
         shell: bash
         if: always() && env.mirror_required == 'true'
+        env:
+          GH_TOKEN: ${{ steps.source-token.outputs.token }}
         run: |
           create_label_if_not_exists() {
             local repo=$1
@@ -377,6 +428,8 @@ jobs:
 
       - name: Cleanup mirror PR temp branch
         if: always() && env.mirror_required == 'true'
+        env:
+          GH_TOKEN: ${{ steps.target-token.outputs.token }}
         run: |
           echo "Cleaning up temp branch: $pr_head_branch from ${TARGET_REPO}"
           if gh api repos/${TARGET_REPO}/git/refs/heads/${pr_head_branch} &> /dev/null; then
