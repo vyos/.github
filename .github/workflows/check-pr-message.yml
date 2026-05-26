@@ -15,11 +15,11 @@
         pull-requests: write
         contents: read
       steps:
-        - uses: actions/checkout@v3
+        - uses: actions/checkout@v6
           timeout-minutes: 2
     
         - name: Checkout reusable actions repo
-          uses: actions/checkout@v3
+          uses: actions/checkout@v6
           with:
             repository: vyos/.github
             path: reusable-actions
