@@ -62,7 +62,7 @@ jobs:
       # Parse and format typos output to comment
       - name: Process typos output
         id: format_comments
-        if: always()
+        if: steps.typos.outcome != 'skipped'
         env:
           COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
           REPO_URL: https://github.com/${{ github.repository }}
@@ -74,7 +74,7 @@ jobs:
 
       # Post comment with inline details (auto-updates on head changes)
       - name: Add PR comment with typo details
-        if: always()
+        if: steps.typos.outcome != 'skipped'
         uses: mshick/add-pr-comment@v3
         with:
           message: ${{ steps.format_comments.outputs.message }}
