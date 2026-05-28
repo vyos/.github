@@ -24,6 +24,16 @@ except ImportError:
 
 # Constants
 DEFAULT_CONFLICT_LABEL = "conflicts"
+# Mergify's `backport` action applies this label when a cherry-pick conflicts
+# and the markers get committed into the destination branch (per the central
+# vyos/mergify config: defaults.actions.backport.label_conflicts). When this
+# label is present, the PR is already flagged as needing human resolution and
+# is held back from merge by Mergify's merge_protections. Adding `conflicts`
+# on top is redundant and creates a label-toggle race with Mergify's own
+# `Label conflicting pull requests` rule (which uses `toggle` keyed on the
+# git-level `conflict` attribute, false for these PRs because the markers
+# are committed content, not unmerged tree state).
+BACKPORT_CONFLICT_LABEL = "backport-conflict"
 DEFAULT_MAX_RETRIES = 10
 DEFAULT_RETRY_DELAY = 5  # seconds
 DEFAULT_PER_PAGE = 100
@@ -273,7 +283,17 @@ def process_pr(api: GitHubAPI, pr: Dict[str, Any], conflict_label: str, max_retr
     mergeable_state = pr_details.get("mergeable_state", "")
     current_labels = [label["name"] for label in pr_details.get("labels", [])]
     has_conflict_label = conflict_label in current_labels
-    
+
+    if BACKPORT_CONFLICT_LABEL in current_labels:
+        log_info(f"  Skipping: {BACKPORT_CONFLICT_LABEL} label is set (Mergify owns this state)")
+        if has_conflict_label:
+            try:
+                api.remove_label(pr_number, conflict_label)
+                log_info(f"  ✅ Removed redundant {conflict_label} label from PR #{pr_number}")
+            except requests.exceptions.HTTPError as e:
+                log_warning(f"  Could not remove label: {e}")
+        return
+
     # Check for conflict markers in the diff (for Mergify backport PRs)
     diff_content = get_pr_diff(api.owner, api.repo, pr_number)
     has_markers = has_conflict_markers(diff_content) if diff_content else False
