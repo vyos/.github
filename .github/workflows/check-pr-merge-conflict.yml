@@ -1,5 +1,5 @@
 # Reusable workflow for checking PR conflicts
-# Usage: uses: vyos/.github/.github/workflows/check-pr-merge-conflict.yml@main
+# Usage: uses: vyos/.github/.github/workflows/check-pr-merge-conflict.yml@production
 # For development: uses: vyos/.github/.github/workflows/check-pr-merge-conflict.yml@branch
 #                  with: action-ref: 'branch'
 name: "Check PRs conflict"
