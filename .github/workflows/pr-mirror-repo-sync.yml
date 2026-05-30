@@ -203,7 +203,11 @@ jobs:
         run: |
           # Accept mirror-completed OR mirror-skipped as evidence of prior mirror runs.
           # Skipped PRs are valid high-watermark markers per spec §4.2.5.
-          completion_labels_found=$(gh pr list --repo ${SOURCE_REPO} --state closed --json labels --jq "any(.[]; .labels[].name == \"${MIRROR_COMPLETED_LABEL}\" or .labels[].name == \"${MIRROR_SKIPPED_LABEL}\")")
+          # Branch-local + merged-only: the watermark query below is branch-local,
+          # so this probe must match (otherwise a terminal label on another base
+          # flips first_mirror=false while the branch-local watermark returns
+          # empty, treating the whole branch backlog as unmirrored).
+          completion_labels_found=$(gh pr list --repo ${SOURCE_REPO} --state merged --base "${SYNC_BRANCH}" --json labels --jq "any(.[]; .labels[].name == \"${MIRROR_COMPLETED_LABEL}\" or .labels[].name == \"${MIRROR_SKIPPED_LABEL}\")")
           if [[ "$completion_labels_found" == "true" ]]; then
             echo "first_mirror=false" >> $GITHUB_ENV
           else
@@ -398,7 +402,11 @@ jobs:
           GH_TOKEN: ${{ steps.source-token.outputs.token }}
         run: |
           # Accept mirror-completed OR mirror-skipped as evidence of prior mirror runs.
-          completion_labels_found=$(gh pr list --repo ${SOURCE_REPO} --state closed --json labels --jq "any(.[]; .labels[].name == \"${MIRROR_COMPLETED_LABEL}\" or .labels[].name == \"${MIRROR_SKIPPED_LABEL}\")")
+          # Branch-local + merged-only: keeps this probe consistent with the
+          # branch-local watermark query and the earlier (job-level) first-mirror
+          # probe — otherwise a terminal label on another base flips first_mirror=false
+          # while the branch-local watermark is empty.
+          completion_labels_found=$(gh pr list --repo ${SOURCE_REPO} --state merged --base "${SYNC_BRANCH}" --json labels --jq "any(.[]; .labels[].name == \"${MIRROR_COMPLETED_LABEL}\" or .labels[].name == \"${MIRROR_SKIPPED_LABEL}\")")
           if [[ "$completion_labels_found" == "true" ]]; then
             echo "first_mirror=false" >> $GITHUB_ENV
           else
@@ -525,6 +533,16 @@ jobs:
           echo "Created PR url retrieved ${pr_url}"
           pr_number=$(basename $pr_url)
           echo "mirror_pr_number=${pr_number}" >> $GITHUB_ENV
+
+      - name: Re-check kill-switch before side effect
+        if: env.mirror_required == 'true'
+        env:
+          MIRROR_ENABLED: ${{ vars.MIRROR_ENABLED }}
+        run: |
+          if [ "$MIRROR_ENABLED" = "false" ]; then
+            echo "::error::kill-switch flipped to false mid-run; aborting before side effect (backport comment)"
+            exit 1
+          fi
 
       - name: Add mirror PR backport
         if: env.mirror_required == 'true'
