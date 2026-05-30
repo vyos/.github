@@ -51,4 +51,4 @@ This repo is the canonical workflow library for both orgs. Consumers reference w
 - Any change merged to `current` ships to every consumer immediately. Test from a feature branch first via `uses:...@<branch>`.
 - Onboarding a repo to the mirror pipeline: see `PRMirrorOnboarding.md`.
 - Architecture & cross-org drift inventory: Confluence 792723546. GHA security hardening spec: 795344927. GHE baseline audit: 795967489.
-- This file (`CLAUDE.md`) is the authoritative working document for AI agents and contributors; keep it updated when conventions or layout change.
+- This file (`AGENTS.md`) is the authoritative working document for AI agents and contributors; keep it updated when conventions or layout change.
