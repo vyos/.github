@@ -7,7 +7,7 @@ on:
         description: 'PR target branch'
         required: true
         type: string
-        default: current
+        default: rolling
       package_name:
         description: 'PR package name'
         required: true

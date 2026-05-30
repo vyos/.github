@@ -19,6 +19,7 @@
           uses: actions/checkout@v6
           with:
             repository: vyos/.github
+            ref: production
             path: reusable-actions
 
         - name: Check the PR title

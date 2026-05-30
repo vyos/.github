@@ -2,7 +2,7 @@
 
 ## Project purpose
 
-Org-wide community-health repo for the `vyos` GitHub organisation. Hosts the canonical reusable GitHub Actions workflows (`workflow_call`) consumed by every `vyos/*` repo, plus PR-validation, doc-linter, typo-checker, and XML preprocessor scripts. Default branch is `current`; changes ship to all consumers immediately — no semver, no release process.
+Org-wide community-health repo for the `vyos` GitHub organisation. Hosts the canonical reusable GitHub Actions workflows (`workflow_call`) consumed by every `vyos/*` repo, plus PR-validation, doc-linter, typo-checker, and XML preprocessor scripts. Default branch is `production`; changes ship to all consumers immediately — no semver, no release process.
 
 ## Tech stack
 
@@ -35,12 +35,12 @@ python scripts/transclude-template <file.xml>
 
 ## Cross-repo context
 
-This repo is the canonical workflow library for both orgs. Consumers reference workflows as `uses: vyos/.github/.github/workflows/<name>.yml@current` with no version pin. The mirror pipeline (`pr-mirror-repo-sync.yml`) is currently live for `vyos-1x`, `vyos-build`, `vyos-utils`, and `vyos1x-config`. `vyos/vyos-cla-signatures` provides the CLA reusable. `vyos-documentation` consumes `lint-doc.yml` (which runs `.github/doc-linter.py`).
+This repo is the canonical workflow library for both orgs. Consumers reference workflows as `uses: vyos/.github/.github/workflows/<name>.yml@production` with no version pin. The mirror pipeline (`pr-mirror-repo-sync.yml`) is currently live for `vyos-1x`, `vyos-build`, `vyos-utils`, and `vyos1x-config`. `vyos/vyos-cla-signatures` provides the CLA reusable. `vyos-documentation` consumes `lint-doc.yml` (which runs `.github/doc-linter.py`).
 
 ## Conventions
 
 - Commit / PR title format: `component: T12345: description`. Phorge task ID at https://vyos.dev mandatory. Enforced by `check-pr-message.yml` on the PR title and every commit.
-- Branch model: `current` (rolling, default), `circinus` (1.5 LTS), `sagitta` (1.4 LTS), `equuleus` (1.3 LTS); `add-pr-labels.yml` maps base branch → label.
+- This repo's own default branch is `production` (renamed from `current` in rollout 1c). Release-train branch model (in consumer repos, mapped by `add-pr-labels.yml`): `rolling` (renamed from `current`), `circinus` (1.5 LTS), `sagitta` (1.4 LTS), `equuleus` (1.3 LTS).
 - Backports: `@Mergifyio backport <branch>` (built-in Mergify command). The mirror pipeline injects these from `bp/<branch>` source labels.
 - Workflows here must be reusable (`workflow_call`); avoid adding non-reusable workflows unless necessary (the only current exception is `cla-check.yml`, which uses `pull_request_target`).
 - Most jobs include a `bullfrogsec/bullfrog@v0.8.4` egress-audit step (non-fatal).
@@ -48,7 +48,7 @@ This repo is the canonical workflow library for both orgs. Consumers reference w
 
 ## Notes for future contributors
 
-- Any change merged to `current` ships to every consumer immediately. Test from a feature branch first via `uses:...@<branch>`.
+- Any change merged to `production` ships to every consumer immediately. Test from a feature branch first via `uses:...@<branch>`.
 - Onboarding a repo to the mirror pipeline: see `PRMirrorOnboarding.md`.
 - Architecture & cross-org drift inventory: Confluence 792723546. GHA security hardening spec: 795344927. GHE baseline audit: 795967489.
 - This file (`CLAUDE.md`) is the authoritative working document for AI agents and contributors; keep it updated when conventions or layout change.

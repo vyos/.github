@@ -1,9 +1,9 @@
 equuleus:
   - any:
     - base-branch: 'equuleus'
-current:
+rolling:
   - any:
-    - base-branch: 'current'
+    - base-branch: 'rolling'
 circinus:
   - any:
     - base-branch: 'circinus'

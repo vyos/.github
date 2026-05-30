@@ -16,16 +16,16 @@ name: PR Mirror and Repo Sync
 on:
   pull_request_target:
     types: [closed]
-    branches: [current]
+    branches: [rolling]
   workflow_dispatch:
     inputs:
       sync_branch:
         description: 'Branch to mirror'
         required: true
-        default: 'current'
+        default: 'rolling'
         type: choice
         options:
-          - current
+          - rolling
 
 permissions:
   pull-requests: write
@@ -40,9 +40,9 @@ jobs:
         github.event_name == 'workflow_dispatch' ||
         (github.event_name == 'pull_request_target' && github.event.pull_request.merged == true)
       )
-    uses: vyos/.github/.github/workflows/pr-mirror-repo-sync.yml@current
+    uses: vyos/.github/.github/workflows/pr-mirror-repo-sync.yml@production
     with:
-      sync_branch: ${{ github.event.inputs.sync_branch || 'current' }}
+      sync_branch: ${{ github.event.inputs.sync_branch || 'rolling' }}
     secrets:
       PAT: ${{ secrets.PAT }}
       REMOTE_OWNER: ${{ secrets.REMOTE_OWNER }}
@@ -57,6 +57,6 @@ jobs:
 
 - Provide **write** access for the `vyosbot` user to both **source** and **target** repositories (`vyos/$REPO` and `$REMOTE_OWNER/$REPO`)
 
-- In the **target repository** (`$REMOTE_OWNER/$REPO`) branch protection settings, For the mirror branch (ex: `current`)
+- In the **target repository** (`$REMOTE_OWNER/$REPO`) branch protection settings, For the mirror branch (ex: `rolling`)
   - Under **Restrict who can push to matching branches** (Restrict pushes that create matching branches), add `vyosbot`.  
   - Under **Allow force pushes**, add `vyosbot`.

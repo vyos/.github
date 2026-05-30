@@ -7,7 +7,7 @@ on:
         description: 'branch to sync'
         required: false
         type: string
-        default: 'current'
+        default: 'rolling'
 
 run-name: Mirror PRs from ${{ github.event.inputs.sync_branch || github.event.pull_request.base.ref }} branch
 
@@ -42,7 +42,7 @@ jobs:
           egress-policy: audit
 
       - id: source-token
-        uses: vyos/.github/.github/actions/get-token@current
+        uses: vyos/.github/.github/actions/get-token@production
         with:
           owner: vyos
           client-id: ${{ vars.APP_CLIENT_ID }}
@@ -164,14 +164,14 @@ jobs:
     steps:
 
       - id: source-token
-        uses: vyos/.github/.github/actions/get-token@current
+        uses: vyos/.github/.github/actions/get-token@production
         with:
           owner: vyos
           client-id: ${{ vars.APP_CLIENT_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
       - id: target-token
-        uses: vyos/.github/.github/actions/get-token@current
+        uses: vyos/.github/.github/actions/get-token@production
         with:
           owner: VyOS-Networks
           client-id: ${{ vars.APP_CLIENT_ID }}

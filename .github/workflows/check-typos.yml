@@ -23,6 +23,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: vyos/.github
+          ref: production
           path: .github-repo
 
       - name: Bullfrog Secure Runner
