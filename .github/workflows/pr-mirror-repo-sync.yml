@@ -1,4 +1,7 @@
 
+# This workflow uses App tokens only. permissions: {} guarantees GITHUB_TOKEN
+# has no scope. Any new uses: or gh/curl step MUST pass an App token explicitly.
+# See spec: 2026-05-30-canonical-stub-permissions-fix-design.md
 name: PR Mirror and Repo Sync
 on:
   workflow_call:
@@ -21,10 +24,7 @@ env:
   MIRROR_SKIPPED_LABEL: 'mirror-skipped'
   CONSUMERS_REPO: 'VyOS-Networks/.github'
 
-permissions:
-  contents: write
-  pull-requests: write
-  issues: write
+permissions: {}
 
 concurrency:
   group: trigger-pr-mirror-repo-sync-${{ github.event.inputs.sync_branch || github.event.pull_request.base.ref }}
