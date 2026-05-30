@@ -18,6 +18,8 @@ env:
   MIRROR_INITIATED_LABEL: 'mirror-initiated'
   MIRROR_COMPLETED_LABEL: 'mirror-completed'
   MIRROR_FAILED_LABEL: 'mirror-failed'
+  MIRROR_SKIPPED_LABEL: 'mirror-skipped'
+  CONSUMERS_REPO: 'VyOS-Networks/.github'
 
 permissions:
   contents: write
@@ -29,8 +31,154 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  check-consumer-inclusion:
+    name: check consumer inclusion
+    runs-on: ubuntu-latest
+    outputs:
+      consumer_found: ${{ steps.lookup.outputs.consumer_found }}
+      target: ${{ steps.lookup.outputs.target }}
+    steps:
+      - name: Bullfrog Secure Runner
+        continue-on-error: true
+        uses: bullfrogsec/bullfrog@v0.8.4
+        with:
+          egress-policy: audit
+
+      # Target-side token reads VyOS-Networks/.github (consumers.yaml is on that
+      # side). vyos-bot App is installed on both orgs with repository_selection
+      # all, so this token has Contents:Read on VyOS-Networks/.github.
+      - id: target-token
+        uses: vyos/.github/.github/actions/get-token@production
+        with:
+          owner: VyOS-Networks
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - id: lookup
+        env:
+          GH_TOKEN: ${{ steps.target-token.outputs.token }}
+          CALLING_REPO: ${{ github.repository }}
+          BASE_REF: ${{ github.event.pull_request.base.ref || inputs.sync_branch }}
+          MIRROR_ENABLED: ${{ vars.MIRROR_ENABLED }}
+          # job.workflow_ref is the CALLED workflow's ref in a reusable context
+          # (github.workflow_ref would resolve to the CALLER's ref — the wrapper's
+          # @production pin — which is not what we want for cross-repo matching).
+          WORKFLOW_REF: ${{ job.workflow_ref }}
+        run: |
+          set -euo pipefail
+          # job.workflow_ref looks like e.g.:
+          #   "vyos/.github/.github/workflows/pr-mirror-repo-sync.yml@refs/heads/feature/rollout-2-inclusion"
+          # Branch refs: strip everything up to and including "@refs/heads/".
+          if [[ "$WORKFLOW_REF" == *"@refs/heads/"* ]]; then
+            ref="${WORKFLOW_REF##*@refs/heads/}"
+            ref_kind="branch"
+          else
+            # Tag or SHA — unusual for this workflow. Fall back to production.
+            ref="production"
+            ref_kind="non-branch-fallback"
+          fi
+          echo "Reading consumers.yaml from ${CONSUMERS_REPO}@${ref} (ref_kind=${ref_kind})"
+
+          # Probe the ref exists on the consumers repo BEFORE attempting the file
+          # read, so we can emit a clear error for the canary-typo case.
+          http_status=$(curl -s -o /tmp/branch-probe.json -w "%{http_code}" \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${CONSUMERS_REPO}/branches/${ref}")
+          if [ "$http_status" != "200" ] && [ "$ref_kind" = "branch" ]; then
+            echo "::error::consumers.yaml lookup: ref '${ref}' does not exist on ${CONSUMERS_REPO}"
+            echo "::error::This is the canary-typo guard. If you're canarying Rollout 2, ensure"
+            echo "::error::the feature branch on ${CONSUMERS_REPO} is named identically to the"
+            echo "::error::feature branch on vyos/.github ('${ref}')."
+            exit 1
+          fi
+          if [ "$http_status" != "200" ]; then
+            echo "::error::consumers.yaml lookup: fallback ref '${ref}' does not exist on ${CONSUMERS_REPO}"
+            exit 1
+          fi
+
+          # Read the file:
+          http_status=$(curl -s -o /tmp/contents.json -w "%{http_code}" \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${CONSUMERS_REPO}/contents/mirror/consumers.yaml?ref=${ref}")
+          if [ "$http_status" != "200" ]; then
+            echo "::error::consumers.yaml not found at ${CONSUMERS_REPO}@${ref}/mirror/consumers.yaml (HTTP ${http_status})"
+            exit 1
+          fi
+          jq -r '.content' /tmp/contents.json | base64 -d > /tmp/consumers.yaml
+
+          # Find this repo in the list (CALLING_REPO is guaranteed to be in the
+          # vyos org by the wrapper-stub `repository_owner == 'vyos'` guard, so
+          # injection risk is nil; defense-in-depth via env-only argv).
+          consumer=$(CALLING_REPO="$CALLING_REPO" python3 <<'PY'
+          import yaml, os, sys, json
+          d = yaml.safe_load(open('/tmp/consumers.yaml'))
+          target_repo = os.environ['CALLING_REPO']
+          for c in d['consumers']:
+              if c['source'] == target_repo:
+                  print(json.dumps(c)); sys.exit(0)
+          print(''); sys.exit(0)
+          PY
+          )
+          if [ -z "$consumer" ]; then
+            echo "consumer_found=false" >> $GITHUB_OUTPUT
+            echo "mirror-skipped: $CALLING_REPO not in consumers.yaml"
+            exit 0
+          fi
+          # Validate base ref against sync_branches (null-coalesce a missing
+          # sync_branches to [] so jq doesn't error on a malformed entry):
+          sync_branches=$(echo "$consumer" | jq -r '(.sync_branches // []) | join(",")')
+          if [ -n "$BASE_REF" ] && ! echo ",$sync_branches," | grep -q ",$BASE_REF,"; then
+            echo "consumer_found=false" >> $GITHUB_OUTPUT
+            echo "mirror-skipped: branch $BASE_REF not in sync_branches=[$sync_branches]"
+            exit 0
+          fi
+          # Check kill-switch:
+          if [ "$MIRROR_ENABLED" = "false" ]; then
+            echo "consumer_found=false" >> $GITHUB_OUTPUT
+            echo "mirror-skipped: vars.MIRROR_ENABLED=false"
+            exit 0
+          fi
+          target=$(echo "$consumer" | jq -r '.target')
+          echo "consumer_found=true" >> $GITHUB_OUTPUT
+          echo "target=$target" >> $GITHUB_OUTPUT
+          echo "consumer matched: source=$CALLING_REPO target=$target (read from ${CONSUMERS_REPO}@${ref})"
+
+  apply-mirror-skipped-label:
+    name: apply mirror-skipped label
+    needs: check-consumer-inclusion
+    if: |
+      needs.check-consumer-inclusion.outputs.consumer_found == 'false'
+      && github.event_name == 'pull_request_target'
+    runs-on: ubuntu-latest
+    steps:
+      - id: source-token
+        uses: vyos/.github/.github/actions/get-token@production
+        with:
+          owner: vyos
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Apply mirror-skipped label to source PR
+        env:
+          GH_TOKEN: ${{ steps.source-token.outputs.token }}
+          # Pass PR number via env to avoid direct ${{ }} interpolation in
+          # run: blocks (defense-in-depth — `.number` is integer, but the
+          # env-passing pattern is the project convention).
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # Ensure the label exists on the source repo before assigning.
+          if [[ $(gh label list --repo "$SOURCE_REPO" --json name --jq "[.[].name] | index(\"$MIRROR_SKIPPED_LABEL\") != null") != "true" ]]; then
+            echo "Label '$MIRROR_SKIPPED_LABEL' not found in repo. Creating it..."
+            gh label create "$MIRROR_SKIPPED_LABEL" --repo "$SOURCE_REPO" --color "cccccc" --description "Mirror was skipped (consumers.yaml exclusion or MIRROR_ENABLED kill-switch)"
+          fi
+          gh issue edit "$PR_NUMBER" --repo "$SOURCE_REPO" --add-label "$MIRROR_SKIPPED_LABEL"
+
   get-unmirrored-PRs:
     name: get unmirrored PRs
+    needs: check-consumer-inclusion
+    if: needs.check-consumer-inclusion.outputs.consumer_found == 'true'
     runs-on: ubuntu-latest
     outputs:
       unmirrored_prs: ${{ steps.get-unmirrored-prs.outputs.unmirrored_prs }}
@@ -53,14 +201,20 @@ jobs:
           GH_TOKEN: ${{ steps.source-token.outputs.token }}
           GITHUB_TOKEN: ${{ steps.source-token.outputs.token }}
         run: |
-          completion_labels_found=$(gh pr list --repo ${SOURCE_REPO} --state closed --json labels --jq "any(.[]; .labels[].name == \"${MIRROR_COMPLETED_LABEL}\")")
+          # Accept mirror-completed OR mirror-skipped as evidence of prior mirror runs.
+          # Skipped PRs are valid high-watermark markers per spec §4.2.5.
+          # Branch-local + merged-only: the watermark query below is branch-local,
+          # so this probe must match (otherwise a terminal label on another base
+          # flips first_mirror=false while the branch-local watermark returns
+          # empty, treating the whole branch backlog as unmirrored).
+          completion_labels_found=$(gh pr list --repo ${SOURCE_REPO} --state merged --base "${SYNC_BRANCH}" --json labels --jq "any(.[]; .labels[].name == \"${MIRROR_COMPLETED_LABEL}\" or .labels[].name == \"${MIRROR_SKIPPED_LABEL}\")")
           if [[ "$completion_labels_found" == "true" ]]; then
             echo "first_mirror=false" >> $GITHUB_ENV
           else
             echo "first_mirror=true" >> $GITHUB_ENV
           fi
 
-      - name: Get last mirrored PR date
+      - name: Get last mirrored or skipped PR date
         if: env.first_mirror == 'false'
         id: get-last-mirrored-date
         uses: actions/github-script@v6
@@ -75,14 +229,18 @@ jobs:
             const sourceRepo = process.env.SOURCE_REPO;
             const baseRef = process.env.SYNC_BRANCH;
             const mirrorCompletedLabel = process.env.MIRROR_COMPLETED_LABEL;
+            const mirrorSkippedLabel = process.env.MIRROR_SKIPPED_LABEL;
 
+            // High-watermark: union of mirror-completed OR mirror-skipped.
+            // Single combined query then filter in jq — gh pr list takes a single
+            // --label and AND-matches multiple, so we list closed PRs and filter.
             const cmd = `gh pr list \
               --repo ${sourceRepo} \
               --state merged \
               --base ${baseRef} \
-              --label "${mirrorCompletedLabel}" \
-              --json number,mergedAt \
-              --jq 'sort_by(.mergedAt) | reverse | .[0].mergedAt'`;
+              --limit 500 \
+              --json number,mergedAt,labels \
+              --jq 'map(select(.labels[].name | (. == "${mirrorCompletedLabel}" or . == "${mirrorSkippedLabel}"))) | sort_by(.mergedAt) | reverse | .[0].mergedAt'`;
 
             console.info(`Running: ${cmd}`);
 
@@ -96,7 +254,7 @@ jobs:
               core.setFailed(`Failed to fetch last mirrored date: ${error.message}`);
             }
 
-            console.info(`Last mirrored date: ${lastMirroredDate}`);
+            console.info(`Last mirrored or skipped date: ${lastMirroredDate}`);
             core.exportVariable('last_mirrored_date', lastMirroredDate);
 
 
@@ -126,6 +284,9 @@ jobs:
               const lastMirroredDate = process.env.last_mirrored_date;
               const mirrorCompletedLabel = process.env.MIRROR_COMPLETED_LABEL;
               const mirrorInitiatedLabel = process.env.MIRROR_INITIATED_LABEL;
+              const mirrorSkippedLabel = process.env.MIRROR_SKIPPED_LABEL;
+              // Exclude PRs already in any terminal/transient mirror state
+              // (mirror-completed, mirror-initiated, OR mirror-skipped).
               cmd = `gh pr list \
                 --repo ${sourceRepo} \
                 --state merged \
@@ -134,7 +295,7 @@ jobs:
                 --json "number,mergedAt,labels" \
                 --jq 'map(select(
                   (.mergedAt > "${lastMirroredDate}") and
-                  (all(.labels[].name; . != "${mirrorCompletedLabel}" and . != "${mirrorInitiatedLabel}"))
+                  (all(.labels[].name; . != "${mirrorCompletedLabel}" and . != "${mirrorInitiatedLabel}" and . != "${mirrorSkippedLabel}"))
                 )) | sort_by(.mergedAt) | .[].number'`;
             }
 
@@ -189,6 +350,17 @@ jobs:
             echo "mirror_required=true" >> $GITHUB_ENV
           fi
 
+      # ── Side effect #1: Apply mirror-initiated label on source PR ──
+      - name: Re-check kill-switch before side effect
+        if: env.mirror_required == 'true'
+        env:
+          MIRROR_ENABLED: ${{ vars.MIRROR_ENABLED }}
+        run: |
+          if [ "$MIRROR_ENABLED" = "false" ]; then
+            echo "::error::kill-switch flipped to false mid-run; aborting before side effect (initiated-label)"
+            exit 1
+          fi
+
       - name: Add mirror-initiated label
         if: env.mirror_required == 'true'
         shell: bash
@@ -229,7 +401,12 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.source-token.outputs.token }}
         run: |
-          completion_labels_found=$(gh pr list --repo ${SOURCE_REPO} --state closed --json labels --jq "any(.[]; .labels[].name == \"${MIRROR_COMPLETED_LABEL}\")")
+          # Accept mirror-completed OR mirror-skipped as evidence of prior mirror runs.
+          # Branch-local + merged-only: keeps this probe consistent with the
+          # branch-local watermark query and the earlier (job-level) first-mirror
+          # probe — otherwise a terminal label on another base flips first_mirror=false
+          # while the branch-local watermark is empty.
+          completion_labels_found=$(gh pr list --repo ${SOURCE_REPO} --state merged --base "${SYNC_BRANCH}" --json labels --jq "any(.[]; .labels[].name == \"${MIRROR_COMPLETED_LABEL}\" or .labels[].name == \"${MIRROR_SKIPPED_LABEL}\")")
           if [[ "$completion_labels_found" == "true" ]]; then
             echo "first_mirror=false" >> $GITHUB_ENV
           else
@@ -250,10 +427,11 @@ jobs:
           else
             echo "Previous merged source PR retrieved ${previous_merged_source_pr}"
             pr_labels=$(gh pr view $previous_merged_source_pr --repo ${SOURCE_REPO} --json labels --jq '.labels | map(.name)')
-            if [[ $pr_labels == *"${MIRROR_COMPLETED_LABEL}"* ]]; then
-              echo "Found previous merged PR (#${previous_merged_source_pr}) mirrored"
+            # Accept mirror-completed OR mirror-skipped as valid terminal labels for the prior PR.
+            if [[ $pr_labels == *"${MIRROR_COMPLETED_LABEL}"* ]] || [[ $pr_labels == *"${MIRROR_SKIPPED_LABEL}"* ]]; then
+              echo "Found previous merged PR (#${previous_merged_source_pr}) with valid terminal label"
             else
-              echo "::error::No mirrored PR found for previous merged source PR #${previous_merged_source_pr}"
+              echo "::error::No mirrored or skipped PR found for previous merged source PR #${previous_merged_source_pr}"
               echo "::error::Please check and make sure to run the sync in order"
               exit -1
             fi
@@ -303,6 +481,17 @@ jobs:
           } > /tmp/pr_body.txt
           echo "Last commit retrieved ${last_commit}, Merge commit retrieved ${merge_commit}, PR labels retrieved ${pr_labels}"
 
+      # ── Side effect #2: Clone source + force-push mirror/<sync_branch>/<pr> to target ──
+      - name: Re-check kill-switch before side effect
+        if: env.mirror_required == 'true'
+        env:
+          MIRROR_ENABLED: ${{ vars.MIRROR_ENABLED }}
+        run: |
+          if [ "$MIRROR_ENABLED" = "false" ]; then
+            echo "::error::kill-switch flipped to false mid-run; aborting before side effect (push temp branch)"
+            exit 1
+          fi
+
       - name: Create mirror PR head branch (temp feature branch)
         if: env.mirror_required == 'true'
         env:
@@ -317,6 +506,17 @@ jobs:
           git checkout -b $pr_head_branch $last_commit
           git remote add target https://x-access-token:${{ steps.target-token.outputs.token }}@github.com/${TARGET_REPO}.git
           git push target $pr_head_branch
+
+      # ── Side effect #3: Open mirror PR on target ──
+      - name: Re-check kill-switch before side effect
+        if: env.mirror_required == 'true'
+        env:
+          MIRROR_ENABLED: ${{ vars.MIRROR_ENABLED }}
+        run: |
+          if [ "$MIRROR_ENABLED" = "false" ]; then
+            echo "::error::kill-switch flipped to false mid-run; aborting before side effect (open mirror PR)"
+            exit 1
+          fi
 
       - name: Create mirror PR
         if: env.mirror_required == 'true'
@@ -334,6 +534,16 @@ jobs:
           pr_number=$(basename $pr_url)
           echo "mirror_pr_number=${pr_number}" >> $GITHUB_ENV
 
+      - name: Re-check kill-switch before side effect
+        if: env.mirror_required == 'true'
+        env:
+          MIRROR_ENABLED: ${{ vars.MIRROR_ENABLED }}
+        run: |
+          if [ "$MIRROR_ENABLED" = "false" ]; then
+            echo "::error::kill-switch flipped to false mid-run; aborting before side effect (backport comment)"
+            exit 1
+          fi
+
       - name: Add mirror PR backport
         if: env.mirror_required == 'true'
         env:
@@ -349,6 +559,17 @@ jobs:
               fi
             fi
           done
+
+      # ── Side effect #4: Auto-merge mirror PR ──
+      - name: Re-check kill-switch before side effect
+        if: env.mirror_required == 'true'
+        env:
+          MIRROR_ENABLED: ${{ vars.MIRROR_ENABLED }}
+        run: |
+          if [ "$MIRROR_ENABLED" = "false" ]; then
+            echo "::error::kill-switch flipped to false mid-run; aborting before side effect (merge mirror PR)"
+            exit 1
+          fi
 
       - name: Merge mirror PR
         if: env.mirror_required == 'true'
@@ -371,6 +592,17 @@ jobs:
           ref: ${{ env.SYNC_BRANCH }}
           token: ${{ steps.target-token.outputs.token }}
 
+      # ── Side effect #5: Force-push source last_commit + merge_commit to target train branch ──
+      - name: Re-check kill-switch before side effect
+        if: env.mirror_required == 'true'
+        env:
+          MIRROR_ENABLED: ${{ vars.MIRROR_ENABLED }}
+        run: |
+          if [ "$MIRROR_ENABLED" = "false" ]; then
+            echo "::error::kill-switch flipped to false mid-run; aborting before side effect (force-push to train)"
+            exit 1
+          fi
+
       - name: Repo sync source repo PR commit
         if: env.mirror_required == 'true'
         shell: bash
@@ -390,6 +622,21 @@ jobs:
           git push origin "${last_commit}:refs/heads/${SYNC_BRANCH}" --force
           git push origin "${merge_commit}:refs/heads/${SYNC_BRANCH}" --force
           git remote rm tmp_source
+
+      # ── Side effect #6: Swap source PR label mirror-initiated → mirror-completed/-failed ──
+      # NOTE: this step intentionally fires on `always()` so that mid-run aborts
+      # (including those triggered by the kill-switch re-checks above) still leave
+      # the source PR labeled mirror-failed. The kill-switch check here is therefore
+      # purely advisory — it logs the abort but does not exit-1, allowing the label
+      # swap to proceed and surface the abort condition correctly.
+      - name: Re-check kill-switch before side effect
+        if: always() && env.mirror_required == 'true'
+        env:
+          MIRROR_ENABLED: ${{ vars.MIRROR_ENABLED }}
+        run: |
+          if [ "$MIRROR_ENABLED" = "false" ]; then
+            echo "::warning::kill-switch is false at label-swap step; allowing mirror-failed to be applied to source PR"
+          fi
 
       - name: Add process labels to source PR
         shell: bash
@@ -424,6 +671,16 @@ jobs:
           else
             create_label_if_not_exists "${SOURCE_REPO}" "${MIRROR_FAILED_LABEL}" "ff0000" "This PR mirror has failed"
             gh issue edit "$PR_NUMBER" --repo "${SOURCE_REPO}" --add-label "${MIRROR_FAILED_LABEL}"
+          fi
+
+      # ── Side effect #7: Delete temporary mirror/<sync_branch>/<pr> ref on target ──
+      - name: Re-check kill-switch before side effect
+        if: always() && env.mirror_required == 'true'
+        env:
+          MIRROR_ENABLED: ${{ vars.MIRROR_ENABLED }}
+        run: |
+          if [ "$MIRROR_ENABLED" = "false" ]; then
+            echo "::warning::kill-switch is false at temp-branch cleanup; allowing cleanup to proceed"
           fi
 
       - name: Cleanup mirror PR temp branch
