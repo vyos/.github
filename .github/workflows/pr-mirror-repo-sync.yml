@@ -636,8 +636,40 @@ jobs:
         if: env.mirror_required == 'true'
         env:
           GH_TOKEN: ${{ steps.target-token.outputs.token }}
+          GH_TOKEN_SOURCE: ${{ steps.source-token.outputs.token }}
         run: |
-          gh pr merge --repo ${TARGET_REPO} --merge $mirror_pr_number
+          set -euo pipefail
+          # Fail-closed preconditions — admin-merge bypasses target-side gating, so only proceed
+          # when this is provably a bot port of validated source content (spec §4, Codex #4):
+          #   source PR MERGED with non-null mergeCommit.oid; mirror PR OPEN, correct base, MERGEABLE.
+          src_state=$(GH_TOKEN="$GH_TOKEN_SOURCE" gh pr view "$PR_NUMBER" --repo "$SOURCE_REPO" \
+            --json state,mergeCommit --jq '"\(.state) \(.mergeCommit.oid // "")"')
+          case "$src_state" in MERGED\ ?*) ;; *) echo "::error::source PR ${SOURCE_REPO}#${PR_NUMBER} not MERGED-with-mergeCommit ($src_state); refuse admin-merge"; exit 1;; esac
+          # Bound-poll mergeability: require MERGEABLE (computed + no conflict). Reject CONFLICTING
+          # or persistent UNKNOWN — UNKNOWN does not prove "no conflict" (spec §4, Codex round-2 Low).
+          mpr_mergeable=UNKNOWN
+          for _i in $(seq 1 12); do
+            read -r mpr_state mpr_base mpr_head mpr_mergeable < <(gh pr view "$mirror_pr_number" --repo "$TARGET_REPO" \
+              --json state,baseRefName,headRefOid,mergeable --jq '"\(.state) \(.baseRefName) \(.headRefOid) \(.mergeable)"')
+            [ "$mpr_mergeable" = "MERGEABLE" ] && break
+            [ "$mpr_mergeable" = "CONFLICTING" ] && break
+            sleep 5
+          done
+          [ "$mpr_state" = "OPEN" ] && [ "$mpr_base" = "$SYNC_BRANCH" ] && [ "$mpr_mergeable" = "MERGEABLE" ] \
+            || { echo "::error::mirror PR ${TARGET_REPO}#${mirror_pr_number} precondition fail (state=$mpr_state base=$mpr_base mergeable=$mpr_mergeable); refuse admin-merge"; exit 1; }
+          # Prove the mirror PR head is EXACTLY the head this run created — $last_commit is the source
+          # PR head the mirror branch ($pr_head_branch) was created/pushed at (the "Create mirror PR
+          # head branch" step). Comparing the current mirror head to $last_commit (not just to a value
+          # read a moment ago) is what proves "this is the head we created" and rejects any out-of-band
+          # mirror-branch update (Codex round-1 #2). Then pin the merge to that expected SHA.
+          [ -n "${last_commit:-}" ] || { echo "::error::last_commit unset at merge step; cannot verify mirror head"; exit 1; }
+          [ "$mpr_head" = "$last_commit" ] || { echo "::error::mirror PR ${TARGET_REPO}#${mirror_pr_number} head $mpr_head != expected $last_commit (out-of-band update); refuse admin-merge"; exit 1; }
+          # Admin-merge, head-pinned to the expected SHA. --admin exercises vyos-bot's ruleset bypass
+          # deterministically; --match-head-commit guarantees we merge only the validated head.
+          if ! gh pr merge --repo "$TARGET_REPO" --merge --admin --match-head-commit "$last_commit" "$mirror_pr_number"; then
+            echo "::error::mirror PR ${TARGET_REPO}#${mirror_pr_number} admin-merge failed (expected head $last_commit)"
+            exit 1
+          fi
 
       # B3 Step 1b: Capture mirror PR merge commit (lease baseline M).
       # Poll until the mirror PR reports mergeCommit.oid (state==MERGED), then require
@@ -664,6 +696,18 @@ jobs:
           cur=$(gh api "repos/${TARGET_REPO}/git/ref/heads/${SYNC_BRANCH}" --jq .object.sha)
           if [ "$cur" != "$M" ]; then
             echo "::error::target ${SYNC_BRANCH} HEAD ($cur) != mirror merge commit M ($M) — out-of-band push detected; aborting before terminal force-push"
+            exit 1
+          fi
+          # Also assert M's first parent is exactly pre_merge_head. The cur==M check above catches an
+          # out-of-band push landing AFTER our merge, but a push landing in the (up to ~60s) window
+          # BETWEEN pre_merge_head capture and the merge is absorbed as M's first parent — it would
+          # pass cur==M and then be silently dropped by the terminal force-push (leased against M).
+          # The pre-admin-merge code failed safe here (BLOCKED→job fails→no force-push); --admin
+          # removes that fail-safe, so guard it explicitly. Fail closed: next run's reconcile-guard
+          # backs up + heals. (Consumes pre_merge_head, previously captured for logging only.)
+          mp1=$(gh api "repos/${TARGET_REPO}/commits/${M}" --jq '.parents[0].sha // ""')
+          if [ "$mp1" != "${pre_merge_head:-}" ]; then
+            echo "::error::mirror merge commit M ($M) first parent ($mp1) != pre_merge_head (${pre_merge_head:-unset}) — target advanced between pre-merge capture and merge; aborting before terminal force-push"
             exit 1
           fi
           echo "post_merge_head=$M" >> "$GITHUB_ENV"
