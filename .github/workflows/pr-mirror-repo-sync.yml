@@ -312,12 +312,26 @@ jobs:
           out="[]"
           landing="{}"   # {pr_number(str): landing_sha} — the gap-walk SHA, strategy-independent
           for sha in $gap_commits; do
-            # map landing commit -> its merged source PR into rolling (fail-closed on API error)
-            retry bash -c 'GH_TOKEN="'"$GH_TOKEN_SOURCE"'" gh api \
-              "repos/'"$SOURCE_REPO"'/commits/'"$sha"'/pulls" \
-              --jq ".[] | select(.base.ref==\"'"$SYNC_BRANCH"'\" and .merged_at != null) | .number" \
-              > "'"$work"'/prs.txt" 2>/dev/null' \
-              || { echo "::error::commit->PR lookup failed for ${sha} after retries; fail-closed (NOT empty replay)"; exit 1; }
+            # Map landing commit -> its merged source PR into rolling. An EMPTY result is retried
+            # (commit->PR association lag right after a merge), then FAIL-CLOSED if still empty after
+            # retries: a gap commit that maps to no merged PR means we cannot prove the replay set is
+            # complete (persistent API lag, or a direct push to source rolling without a PR). NEVER
+            # silently skip — that would emit an incomplete replay set and re-strand the commit
+            # (Codex adversarial finding). The next run retries automatically; a genuine direct-push
+            # anomaly is surfaced for investigation rather than silently propagated.
+            prs=""
+            attempts=0
+            while :; do
+              prs=$(GH_TOKEN="$GH_TOKEN_SOURCE" gh api "repos/${SOURCE_REPO}/commits/${sha}/pulls" \
+                --jq ".[] | select(.base.ref==\"${SYNC_BRANCH}\" and .merged_at != null) | .number" 2>/dev/null) && rc=0 || rc=1
+              if [ "$rc" -eq 0 ] && [ -n "$prs" ]; then break; fi
+              attempts=$((attempts+1))
+              if [ "$attempts" -ge 5 ]; then
+                echo "::error::gap commit ${sha} maps to no merged ${SYNC_BRANCH} PR after ${attempts} attempts (commit->PR association lag, or a direct push to source ${SYNC_BRANCH} without a PR). Cannot prove replay completeness — fail-closed; the next run retries automatically. Investigate the source commit if this persists."
+                exit 1
+              fi
+              sleep $((attempts*3))
+            done
             while read -r n; do
               [ -n "$n" ] || continue
               # dedupe: each PR has one --first-parent landing commit.
@@ -325,7 +339,7 @@ jobs:
                 out=$(echo "$out" | jq -c --argjson n "$n" '. + [$n]')
                 landing=$(echo "$landing" | jq -c --arg n "$n" --arg s "$sha" '. + {($n): $s}')
               fi
-            done < "$work/prs.txt"
+            done <<< "$prs"
           done
           echo "unmirrored_prs=$out" >> "$GITHUB_OUTPUT"
           echo "pr_landing_shas=$landing" >> "$GITHUB_OUTPUT"
@@ -370,10 +384,11 @@ jobs:
           # (mirror-completed/mirror-initiated → mirror_required=false) is REMOVED: a stale
           # terminal label on a rewound commit must NOT no-op the replay. Set true unconditionally;
           # the per-PR reachability re-check below (Step 3.5) is the only legitimate skip.
-          # Clear any stale terminal/transient labels so they don't mislead later runs.
-          gh issue edit "$PR_NUMBER" --repo "$SOURCE_REPO" \
-            --remove-label "$MIRROR_COMPLETED_LABEL" \
-            --remove-label "$MIRROR_INITIATED_LABEL" 2>/dev/null || true
+          # Do NOT clear terminal labels here (Codex adversarial finding): the re-check may skip
+          # this PR (already reachable via an earlier serial item), in which case its commit IS on
+          # target and an existing mirror-completed label is CORRECT — clearing it would leave a
+          # reachable-but-unlabeled source PR. On the PROCEED path the normal flow re-labels
+          # (mirror-initiated → mirror-completed at the end), overwriting any stale state.
           echo "mirror_required=true" >> $GITHUB_ENV
 
       # ── B4 Step 3.5: Per-PR reachability re-check (every matrix item, before any side effect) ──
