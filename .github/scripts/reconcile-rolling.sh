@@ -101,7 +101,7 @@ while :; do
   if [ "$MODE" = "INITIAL" ]; then RESET="$S"; else RESET="$MB"; fi
   if git push target "$RESET:refs/heads/$BR" --force-with-lease="refs/heads/$BR:$T"; then
     echo "::warning::$TGT@$BR diverged; backed up T=$T to $BACKUP; reset to ${MODE}-point $RESET"
-    echo "reconcile_action=reset"   # case-3 signal (caller greps this to gate reachability replay)
+    echo "reconcile_action=reset"   # case-3 signal — OBSERVABILITY ONLY (round-5: replay no longer gated on it)
     exit 0
   fi
   # lease failed → target advanced T→U during the window. Re-read, fresh backup at U,
@@ -110,7 +110,9 @@ while :; do
     echo "::error::reconcile: force-push lease failed twice for $TGT (backups preserved); abort"; exit 10
   fi
   attempt=1
-  git fetch --quiet target "$BR:refs/remotes/target/$BR"
+  # FORCED refspec (+): refs/remotes/target/$BR already exists from the initial fetch and the
+  # target advanced T->U; a non-forced fetch can fail to update the local ref (round-5 Codex minor).
+  git fetch --quiet target "+$BR:refs/remotes/target/$BR"
   newT=$(GH_TOKEN="$GH_TOKEN_TARGET" api "repos/$TGT/git/ref/heads/$BR" --jq .object.sha)
   [ "$newT" != "$T" ] || { echo "::error::reconcile: lease failed but target HEAD unchanged ($T); ruleset/bypass reject — abort"; exit 10; }
   T="$newT"

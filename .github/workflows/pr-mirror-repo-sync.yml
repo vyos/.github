@@ -199,6 +199,11 @@ jobs:
           set -euo pipefail
           [ "$SYNC_BRANCH" = "rolling" ] || { echo "reconcile-guard: branch '$SYNC_BRANCH' != rolling; skip"; echo "reconciled=skipped" >> "$GITHUB_OUTPUT"; exit 0; }
           [ "$MIRROR_ENABLED" != "false" ] || { echo "reconcile-guard: kill-switch off; skip"; echo "reconciled=skipped" >> "$GITHUB_OUTPUT"; exit 0; }
+          # capture the script's reconcile_action (reset|noop) for OBSERVABILITY ONLY — round-5:
+          # the reachability replay (B4) runs UNCONDITIONALLY and does NOT branch on it (an
+          # interrupted reset must heal on a later run that did no reset). The output is kept for
+          # logs/debugging, not consumed as a gate. The guard's job here is to RESET on case 3
+          # (rewinding target to merge-base) so B4 then re-reads T_replay = post-reset HEAD.
           out=$(bash _central/.github/scripts/reconcile-rolling.sh \
             "$SOURCE_REPO" "$TARGET_REPO" "$SYNC_BRANCH" GUARD "$RUN_TAG")
           echo "$out"
@@ -244,8 +249,9 @@ jobs:
       && needs.reconcile-guard.outputs.reconciled != ''
     runs-on: ubuntu-latest
     outputs:
-      # Coalesce: reset path sets unmirrored-reachability; steady-state sets get-unmirrored-prs.
-      unmirrored_prs: ${{ steps.unmirrored-reachability.outputs.unmirrored_prs || steps.get-unmirrored-prs.outputs.unmirrored_prs }}
+      unmirrored_prs: ${{ steps.unmirrored-reachability.outputs.unmirrored_prs }}
+      # pr_landing_shas: JSON map {pr_number(str): landing_sha} for per-PR reachability re-check.
+      pr_landing_shas: ${{ steps.unmirrored-reachability.outputs.pr_landing_shas }}
     steps:
       - name: Bullfrog Secure Runner
         continue-on-error: true
@@ -267,12 +273,16 @@ jobs:
           client-id: ${{ vars.APP_CLIENT_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
-      # ── Reset path: reachability-based replay set (B4 Step 1) ──────────────────
-      # When the guard performed a case-3 reset, derive the replay set from git
-      # reachability — not from labels — so stale mirror-completed PRs are replayed.
-      - name: Get unmirrored PRs (reachability — reset path)
+      # ── Reachability replay set — computed EVERY run, NEVER gated on reconcile_action ──
+      # reconcile_action is observability-only (round-5: no longer a gate). An interrupted
+      # reset, a steady-state new merge, and a direct-push rewind all present identically as
+      # "≥1 merged source PR unreachable from T_replay" — one uniform reachability path heals
+      # all three. T_replay = current target rolling HEAD post-guard/post-reset.
+      # Bounded gap-walk: git rev-list --first-parent T_replay..S → each commit is one PR's
+      # landing on source rolling (NOT a paginate over all closed PRs).
+      # Fail-closed with retry — NO || true (round-5 spec §6.3 + §7).
+      - name: Get unmirrored PRs (reachability — every run)
         id: unmirrored-reachability
-        if: needs.reconcile-guard.outputs.reconcile_action == 'reset'
         env:
           GH_TOKEN_SOURCE: ${{ steps.source-token.outputs.token }}
           GH_TOKEN_TARGET: ${{ steps.target-token.outputs.token }}
@@ -281,146 +291,45 @@ jobs:
           SYNC_BRANCH: ${{ github.event.pull_request.base.ref || inputs.sync_branch }}
         run: |
           set -euo pipefail
+          retry() { local n=0; until "$@"; do n=$((n+1)); [ "$n" -ge 5 ] && return 1; sleep $((n*3)); done; }
           work="$(mktemp -d)"
-          git clone --quiet "https://x-access-token:${GH_TOKEN_SOURCE}@github.com/${SOURCE_REPO}.git" "$work/src"
+          retry git clone --quiet "https://x-access-token:${GH_TOKEN_SOURCE}@github.com/${SOURCE_REPO}.git" "$work/src" \
+            || { echo "::error::clone of source failed after retries; fail-closed (NOT empty replay)"; exit 1; }
           cd "$work/src"
           git remote add target "https://x-access-token:${GH_TOKEN_TARGET}@github.com/${TARGET_REPO}.git"
-          # explicit destination refspec — a bare `git fetch target <branch>` may only
-          # write FETCH_HEAD, NOT refs/remotes/target/<branch>, so merge-base would fail
-          # "unknown revision" → false "absent" (Codex round-5 finding).
-          git fetch --quiet target "${SYNC_BRANCH}:refs/remotes/target/${SYNC_BRANCH}"
-          # paginate ALL merged PRs ascending by mergedAt (not capped at 500).
-          # Use gh api --paginate ALONE — do NOT also loop ?page= manually (round-2 finding #3).
-          entries=$(GH_TOKEN="$GH_TOKEN_SOURCE" gh api --paginate \
-            "repos/${SOURCE_REPO}/pulls?state=closed&base=${SYNC_BRANCH}&per_page=100" \
-            --jq '.[] | select(.merged_at != null) | "\(.merged_at) \(.number) \(.merge_commit_sha)"' 2>/dev/null || true)
+          # explicit destination refspec — a bare `git fetch target <branch>` may only write
+          # FETCH_HEAD, NOT refs/remotes/target/<branch> (Codex round-5 finding).
+          retry git fetch --quiet target "${SYNC_BRANCH}:refs/remotes/target/${SYNC_BRANCH}" \
+            || { echo "::error::fetch of target ${SYNC_BRANCH} (T_replay) failed; fail-closed"; exit 1; }
+          # T_replay = the CURRENT target HEAD (post-guard/post-reset). The gap is bounded:
+          # --first-parent over T_replay..origin/<branch> yields exactly each PR's landing commit
+          # on source rolling (merge commit, or single squash/rebase commit) — one commit per PR in
+          # the gap, NOT all closed PRs. This is the spec's "walk S down to first commit reachable
+          # from T_replay". The reachable-from-S half is implicit (rev-list only emits S-reachable
+          # commits); the not-reachable-from-T_replay half is the `T_replay..` range exclusion.
+          gap_commits=$(git rev-list --first-parent --reverse \
+            "refs/remotes/target/${SYNC_BRANCH}..origin/${SYNC_BRANCH}")
           out="[]"
-          while read -r _mergedAt n sha; do
-            [ -n "${sha:-}" ] || continue
-            if ! git merge-base --is-ancestor "$sha" "refs/remotes/target/${SYNC_BRANCH}" 2>/dev/null; then
-              out=$(echo "$out" | jq -c ". + [$n]")
-            fi
-          done < <(printf '%s' "$entries" | sort)
+          landing="{}"   # {pr_number(str): landing_sha} — the gap-walk SHA, strategy-independent
+          for sha in $gap_commits; do
+            # map landing commit -> its merged source PR into rolling (fail-closed on API error)
+            retry bash -c 'GH_TOKEN="'"$GH_TOKEN_SOURCE"'" gh api \
+              "repos/'"$SOURCE_REPO"'/commits/'"$sha"'/pulls" \
+              --jq ".[] | select(.base.ref==\"'"$SYNC_BRANCH"'\" and .merged_at != null) | .number" \
+              > "'"$work"'/prs.txt" 2>/dev/null' \
+              || { echo "::error::commit->PR lookup failed for ${sha} after retries; fail-closed (NOT empty replay)"; exit 1; }
+            while read -r n; do
+              [ -n "$n" ] || continue
+              # dedupe: each PR has one --first-parent landing commit.
+              if ! echo "$out" | jq -e --argjson n "$n" 'index($n)' >/dev/null; then
+                out=$(echo "$out" | jq -c --argjson n "$n" '. + [$n]')
+                landing=$(echo "$landing" | jq -c --arg n "$n" --arg s "$sha" '. + {($n): $s}')
+              fi
+            done < "$work/prs.txt"
+          done
           echo "unmirrored_prs=$out" >> "$GITHUB_OUTPUT"
+          echo "pr_landing_shas=$landing" >> "$GITHUB_OUTPUT"
           rm -rf "$work"
-
-      # ── Steady-state path: label/high-watermark walk (B4 Step 2) ───────────────
-      - name: Check first mirror
-        if: needs.reconcile-guard.outputs.reconcile_action != 'reset'
-        env:
-          GH_TOKEN: ${{ steps.source-token.outputs.token }}
-          GITHUB_TOKEN: ${{ steps.source-token.outputs.token }}
-        run: |
-          # Accept mirror-completed OR mirror-skipped as evidence of prior mirror runs.
-          # Skipped PRs are valid high-watermark markers per spec §4.2.5.
-          # Branch-local + merged-only: the watermark query below is branch-local,
-          # so this probe must match (otherwise a terminal label on another base
-          # flips first_mirror=false while the branch-local watermark returns
-          # empty, treating the whole branch backlog as unmirrored).
-          completion_labels_found=$(gh pr list --repo ${SOURCE_REPO} --state merged --base "${SYNC_BRANCH}" --json labels --jq "any(.[]; .labels[].name == \"${MIRROR_COMPLETED_LABEL}\" or .labels[].name == \"${MIRROR_SKIPPED_LABEL}\")")
-          if [[ "$completion_labels_found" == "true" ]]; then
-            echo "first_mirror=false" >> $GITHUB_ENV
-          else
-            echo "first_mirror=true" >> $GITHUB_ENV
-          fi
-
-      - name: Get last mirrored or skipped PR date
-        if: needs.reconcile-guard.outputs.reconcile_action != 'reset' && env.first_mirror == 'false'
-        id: get-last-mirrored-date
-        uses: actions/github-script@v6
-        env:
-          GH_TOKEN: ${{ steps.source-token.outputs.token }}
-          GITHUB_TOKEN: ${{ steps.source-token.outputs.token }}
-        with:
-          github-token: ${{ steps.source-token.outputs.token }}
-          script: |
-            const { execSync } = require('child_process');
-
-            const sourceRepo = process.env.SOURCE_REPO;
-            const baseRef = process.env.SYNC_BRANCH;
-            const mirrorCompletedLabel = process.env.MIRROR_COMPLETED_LABEL;
-            const mirrorSkippedLabel = process.env.MIRROR_SKIPPED_LABEL;
-
-            // High-watermark: union of mirror-completed OR mirror-skipped.
-            // Single combined query then filter in jq — gh pr list takes a single
-            // --label and AND-matches multiple, so we list closed PRs and filter.
-            const cmd = `gh pr list \
-              --repo ${sourceRepo} \
-              --state merged \
-              --base ${baseRef} \
-              --limit 500 \
-              --json number,mergedAt,labels \
-              --jq 'map(select(.labels[].name | (. == "${mirrorCompletedLabel}" or . == "${mirrorSkippedLabel}"))) | sort_by(.mergedAt) | reverse | .[0].mergedAt'`;
-
-            console.info(`Running: ${cmd}`);
-
-            let lastMirroredDate = '';
-
-            try {
-              lastMirroredDate = execSync(cmd, { encoding: 'utf-8' })
-                .trim()
-                .replace(/"/g, '');
-            } catch (error) {
-              core.setFailed(`Failed to fetch last mirrored date: ${error.message}`);
-            }
-
-            console.info(`Last mirrored or skipped date: ${lastMirroredDate}`);
-            core.exportVariable('last_mirrored_date', lastMirroredDate);
-
-
-      - name: Get unmirrored PRs
-        id: get-unmirrored-prs
-        if: needs.reconcile-guard.outputs.reconcile_action != 'reset'
-        uses: actions/github-script@v6
-        env:
-          GH_TOKEN: ${{ steps.source-token.outputs.token }}
-          GITHUB_TOKEN: ${{ steps.source-token.outputs.token }}
-        with:
-          github-token: ${{ steps.source-token.outputs.token }}
-          script: |
-            const { execSync } = require('child_process');
-            const isFirstMirror = process.env.first_mirror;
-            const baseRef = process.env.SYNC_BRANCH;
-            const sourceRepo = process.env.SOURCE_REPO;
-            let cmd = '';
-
-            if (isFirstMirror === 'true') {
-              cmd = `gh pr list \
-                --repo ${sourceRepo} \
-                --state merged \
-                --base ${baseRef} \
-                --json number,mergedAt \
-                --jq 'sort_by(.mergedAt) | reverse | .[0].number'`;
-            } else {
-              const lastMirroredDate = process.env.last_mirrored_date;
-              const mirrorCompletedLabel = process.env.MIRROR_COMPLETED_LABEL;
-              const mirrorInitiatedLabel = process.env.MIRROR_INITIATED_LABEL;
-              const mirrorSkippedLabel = process.env.MIRROR_SKIPPED_LABEL;
-              // Exclude PRs already in any terminal/transient mirror state
-              // (mirror-completed, mirror-initiated, OR mirror-skipped).
-              cmd = `gh pr list \
-                --repo ${sourceRepo} \
-                --state merged \
-                --base ${baseRef} \
-                --limit 500 \
-                --json "number,mergedAt,labels" \
-                --jq 'map(select(
-                  (.mergedAt > "${lastMirroredDate}") and
-                  (all(.labels[].name; . != "${mirrorCompletedLabel}" and . != "${mirrorInitiatedLabel}" and . != "${mirrorSkippedLabel}"))
-                )) | sort_by(.mergedAt) | .[].number'`;
-            }
-
-            core.info(`Running: ${cmd}`);
-
-            const unmirroredPRsRaw = execSync(cmd, { encoding: 'utf-8' });
-            const unmirroredPRs = unmirroredPRsRaw
-              .trim()
-              .split('\n')
-              .filter(line => line)
-              .map(line => parseInt(line, 10));
-
-            core.setOutput('unmirrored_prs', JSON.stringify(unmirroredPRs));
-            core.info(`unmirrored_prs=${JSON.stringify(unmirroredPRs)}`);
 
 
   process-unmirrored-PR:
@@ -430,14 +339,12 @@ jobs:
     strategy:
       matrix:
         pr_number: ${{ fromJson(needs.get-unmirrored-PRs.outputs.unmirrored_prs) }}
-      max-parallel: 1  # serial ordering — ascending mergedAt from both paths; B4 Step 4 confirmed
+      # Serial ordering — ascending landing order from the gap-walk (--first-parent oldest-first).
+      # Ordering invariant enforced structurally (max-parallel:1 + gap-walk ascending + per-PR
+      # reachability re-check); no longer encoded in labels (B4 Step 3.7 removed label gate).
+      max-parallel: 1
     env:
       PR_NUMBER: ${{ matrix.pr_number }}
-      # RESET_MODE: true when the guard performed a case-3 reset this run.
-      # In reset mode the replay set is reachability-derived; stale mirror labels
-      # must NOT skip PRs (B4 Step 3). Each PR also re-checks reachability before
-      # any side effect (B4 Step 3.5) since earlier serial items can advance target.
-      RESET_MODE: ${{ needs.reconcile-guard.outputs.reconcile_action == 'reset' }}
     steps:
 
       - id: source-token
@@ -458,56 +365,59 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.source-token.outputs.token }}
         run: |
-          # B4 Step 3: in reset mode the replay set is reachability-derived — stale
-          # mirror-completed / mirror-initiated labels must NOT skip the PR (the commit
-          # was rewound off target; the label is stale). Set mirror_required=true for all
-          # PRs the matrix received, then clear the stale labels so the steady-state
-          # high-watermark walk does not anchor on a PR whose commit is gone from target.
-          if [ "${RESET_MODE:-false}" = "true" ]; then
-            echo "reset mode: bypassing label skip for PR ${PR_NUMBER} (reachability-derived replay set)"
-            # Remove stale terminal/transient labels so the high-watermark walk is clean
-            # next steady-state run. Ignore "label not present" errors with || true.
-            gh issue edit "$PR_NUMBER" --repo "$SOURCE_REPO" \
-              --remove-label "$MIRROR_COMPLETED_LABEL" \
-              --remove-label "$MIRROR_INITIATED_LABEL" 2>/dev/null || true
-            echo "mirror_required=true" >> $GITHUB_ENV
-          else
-            pr_labels=$(gh pr view $PR_NUMBER --repo $SOURCE_REPO --json labels --jq '.labels | map(.name)')
-            if [[ $pr_labels == *"${MIRROR_COMPLETED_LABEL}"* ]] || [[ $pr_labels == *"${MIRROR_INITIATED_LABEL}"* ]]; then
-              echo "PR #${PR_NUMBER} in source repo already has '${MIRROR_COMPLETED_LABEL}' or '${MIRROR_INITIATED_LABEL}' label"
-              echo "mirror_required=false" >> $GITHUB_ENV
-            else
-              echo "mirror_required=true" >> $GITHUB_ENV
-            fi
-          fi
+          # B4 Step 3 (round-5): matrix membership is reachability-authoritative — a PR is in
+          # the matrix iff its landing commit is absent from T_replay. The old label-skip
+          # (mirror-completed/mirror-initiated → mirror_required=false) is REMOVED: a stale
+          # terminal label on a rewound commit must NOT no-op the replay. Set true unconditionally;
+          # the per-PR reachability re-check below (Step 3.5) is the only legitimate skip.
+          # Clear any stale terminal/transient labels so they don't mislead later runs.
+          gh issue edit "$PR_NUMBER" --repo "$SOURCE_REPO" \
+            --remove-label "$MIRROR_COMPLETED_LABEL" \
+            --remove-label "$MIRROR_INITIATED_LABEL" 2>/dev/null || true
+          echo "mirror_required=true" >> $GITHUB_ENV
 
-      # ── B4 Step 3.5: Reset-mode per-PR reachability re-check ──────────────────
-      # With max-parallel:1, mirroring earlier PRs advances target rolling, which
-      # can make a later PR's merge commit reachable before its turn. Re-check here
-      # (before any side effect) and skip if already reachable — avoids a redundant
-      # empty mirror PR. Self-contained (own mktemp clone; does NOT use $checkout_folder
-      # which is created later at the "Create checkout folder" step).
-      - name: Reset-mode per-PR reachability re-check
-        if: env.RESET_MODE == 'true' && env.mirror_required == 'true'
+      # ── B4 Step 3.5: Per-PR reachability re-check (every matrix item, before any side effect) ──
+      # With max-parallel:1, mirroring earlier PRs advances target rolling, which can make a
+      # later PR's landing commit reachable before its turn. Re-check here and skip if already
+      # reachable — avoids a redundant empty mirror PR.
+      # STEP ORDER (load-bearing): runs AFTER Check PR mirror required (which sets true) and
+      # BEFORE Add mirror-initiated label (first side effect). Last writer to $GITHUB_ENV wins.
+      # Self-contained: does NOT use $checkout_folder (created later). Uses LANDING_MAP (the
+      # gap-walk SHA — strategy-independent) with mergeCommit.oid as fallback.
+      - name: Per-PR reachability re-check
         env:
           GH_TOKEN_SOURCE: ${{ steps.source-token.outputs.token }}
           GH_TOKEN_TARGET: ${{ steps.target-token.outputs.token }}
+          LANDING_MAP: ${{ needs.get-unmirrored-PRs.outputs.pr_landing_shas }}
         run: |
           set -euo pipefail
-          msha=$(GH_TOKEN="$GH_TOKEN_SOURCE" gh pr view "$PR_NUMBER" --repo "$SOURCE_REPO" --json mergeCommit --jq '.mergeCommit.oid')
+          retry() { local n=0; until "$@"; do n=$((n+1)); [ "$n" -ge 5 ] && return 1; sleep $((n*3)); done; }
+          # PRIMARY: the gap-walk SHA (strategy-independent).
+          # FALLBACK: .mergeCommit.oid (for cases where gap-map has no entry — should not
+          # happen for replay-set members, but defensive).
+          msha=$(printf '%s' "$LANDING_MAP" | jq -r --arg n "$PR_NUMBER" '.[$n] // empty')
+          if [ -z "$msha" ]; then
+            msha=$(GH_TOKEN="$GH_TOKEN_SOURCE" gh pr view "$PR_NUMBER" --repo "$SOURCE_REPO" \
+              --json mergeCommit --jq '.mergeCommit.oid // empty')
+          fi
+          [ -n "$msha" ] || { echo "::error::PR ${PR_NUMBER}: no landing SHA in gap map and no mergeCommit; fail-closed"; exit 1; }
+          # SELF-CONTAINED: own temp clone; does NOT reference $checkout_folder (created later).
+          # Fetch current target rolling (advanced by earlier max-parallel:1 items this run).
           rc="$(mktemp -d)"
-          git clone --quiet --no-checkout "https://x-access-token:${GH_TOKEN_SOURCE}@github.com/${SOURCE_REPO}.git" "$rc"
+          retry git clone --quiet --no-checkout "https://x-access-token:${GH_TOKEN_SOURCE}@github.com/${SOURCE_REPO}.git" "$rc" \
+            || { echo "::error::re-check clone failed; fail-closed"; exit 1; }
           cd "$rc"
           git remote add target "https://x-access-token:${GH_TOKEN_TARGET}@github.com/${TARGET_REPO}.git"
-          git fetch --quiet origin
-          # explicit destination refspec (Codex round-5): ensures refs/remotes/target/<branch>
-          # exists for merge-base; a bare `git fetch target <branch>` may only set FETCH_HEAD.
-          git fetch --quiet target "${SYNC_BRANCH}:refs/remotes/target/${SYNC_BRANCH}"
+          # explicit destination refspec (Codex round-5): a bare `git fetch target <branch>`
+          # may only set FETCH_HEAD, not refs/remotes/target/<branch>.
+          retry git fetch --quiet target "${SYNC_BRANCH}:refs/remotes/target/${SYNC_BRANCH}" \
+            || { echo "::error::re-check fetch of target failed; fail-closed"; exit 1; }
           if git merge-base --is-ancestor "$msha" "refs/remotes/target/${SYNC_BRANCH}" 2>/dev/null; then
-            echo "reset-mode: PR ${PR_NUMBER} merge commit ${msha} is NOW reachable from target (carried by an earlier replay item); skipping"
+            echo "PR ${PR_NUMBER} landing commit ${msha} is NOW reachable from target (carried by an earlier replay item); skipping"
             echo "mirror_required=false" >> "$GITHUB_ENV"
           else
-            echo "reset-mode: PR ${PR_NUMBER} still absent from target; proceeding"
+            echo "PR ${PR_NUMBER} still absent from target; proceeding"
+            echo "mirror_required=true" >> "$GITHUB_ENV"
           fi
           cd - >/dev/null; rm -rf "$rc"
 
@@ -556,47 +466,6 @@ jobs:
           git remote add origin https://x-access-token:${{ steps.source-token.outputs.token }}@github.com/${SOURCE_REPO}.git
           git fetch
           git checkout -b $SYNC_BRANCH
-
-      - name: Check first mirror
-        if: env.mirror_required == 'true'
-        env:
-          GH_TOKEN: ${{ steps.source-token.outputs.token }}
-        run: |
-          # Accept mirror-completed OR mirror-skipped as evidence of prior mirror runs.
-          # Branch-local + merged-only: keeps this probe consistent with the
-          # branch-local watermark query and the earlier (job-level) first-mirror
-          # probe — otherwise a terminal label on another base flips first_mirror=false
-          # while the branch-local watermark is empty.
-          completion_labels_found=$(gh pr list --repo ${SOURCE_REPO} --state merged --base "${SYNC_BRANCH}" --json labels --jq "any(.[]; .labels[].name == \"${MIRROR_COMPLETED_LABEL}\" or .labels[].name == \"${MIRROR_SKIPPED_LABEL}\")")
-          if [[ "$completion_labels_found" == "true" ]]; then
-            echo "first_mirror=false" >> $GITHUB_ENV
-          else
-            echo "first_mirror=true" >> $GITHUB_ENV
-          fi
-
-      - name: Check previous merged PR mirrored
-        if: env.mirror_required == 'true' && env.first_mirror == 'false'
-        env:
-          GH_TOKEN: ${{ steps.source-token.outputs.token }}
-        run: |
-          # Get the merge date of the given PR
-          merge_date=$(gh pr view $PR_NUMBER --repo ${SOURCE_REPO} --json mergedAt --jq '.mergedAt')
-          # Fetch all merged PRs on the base branch and find the one with the latest merge date before the given PR
-          previous_merged_source_pr=$(gh pr list --repo ${SOURCE_REPO} --base "${SYNC_BRANCH}" --state merged --json number,mergedAt --jq 'map(select(.mergedAt < "'"$merge_date"'")) | max_by(.mergedAt) | .number')
-          if [[ -z "$previous_merged_source_pr" ]]; then
-            echo "No previous merged PR found for branch ${SYNC_BRANCH}"
-          else
-            echo "Previous merged source PR retrieved ${previous_merged_source_pr}"
-            pr_labels=$(gh pr view $previous_merged_source_pr --repo ${SOURCE_REPO} --json labels --jq '.labels | map(.name)')
-            # Accept mirror-completed OR mirror-skipped as valid terminal labels for the prior PR.
-            if [[ $pr_labels == *"${MIRROR_COMPLETED_LABEL}"* ]] || [[ $pr_labels == *"${MIRROR_SKIPPED_LABEL}"* ]]; then
-              echo "Found previous merged PR (#${previous_merged_source_pr}) with valid terminal label"
-            else
-              echo "::error::No mirrored or skipped PR found for previous merged source PR #${previous_merged_source_pr}"
-              echo "::error::Please check and make sure to run the sync in order"
-              exit 1
-            fi
-          fi
 
       - name: Get source PR info
         if: env.mirror_required == 'true'
@@ -813,15 +682,20 @@ jobs:
           git remote set-url origin "https://x-access-token:$GITHUB_TOKEN@github.com/${TARGET_REPO}"
           git remote add tmp_source "$source_repo_url"
           git fetch tmp_source --quiet
-          # B3 Step 2: lease against post_merge_head (M) — a human push U landing after
-          # the gh pr merge makes cur != M and the capture step above would have aborted.
-          # If we reach here, cur == M is guaranteed. On lease failure (extremely unlikely
-          # race), surface for reconcile rather than retrying blind.
-          if ! git push origin "${last_commit}:refs/heads/${SYNC_BRANCH}" --force-with-lease="refs/heads/${SYNC_BRANCH}:${post_merge_head}"; then
+          # B3 Step 2 (round-5 single push): content = merge_commit (source PR mergeCommit.oid);
+          # lease expected-value = post_merge_head (M = target-side mirror-merge commit).
+          # One push carries last_commit transitively: last_commit is an ancestor of merge_commit
+          # on a standard merge, or EQUAL to it via the squash/rebase fallback (lines above:
+          # `if ! git branch --contains last_commit; then last_commit=merge_commit`).
+          # This collapses the prior two-step push (last_commit, then merge_commit) to one —
+          # removing the intermediate-state hole where a failed 2nd push left target at
+          # last_commit (next run misread as case-2/no-op).
+          # Lease against M (NOT latest HEAD): a human push U after merge makes latest != M,
+          # failing the lease (vs silently overwriting U). On lease failure do NOT retry blind.
+          if ! git push origin "${merge_commit}:refs/heads/${SYNC_BRANCH}" --force-with-lease="refs/heads/${SYNC_BRANCH}:${post_merge_head}"; then
             echo "::error::terminal force-push lease failed (target moved past post-merge HEAD ${post_merge_head}); out-of-band push detected — aborting before overwrite"
             exit 1
           fi
-          git push origin "${merge_commit}:refs/heads/${SYNC_BRANCH}" --force-with-lease="refs/heads/${SYNC_BRANCH}:${last_commit}"
           git remote rm tmp_source
 
       # ── Side effect #6: Swap source PR label mirror-initiated → mirror-completed/-failed ──
