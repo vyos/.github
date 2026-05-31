@@ -698,6 +698,18 @@ jobs:
             echo "::error::target ${SYNC_BRANCH} HEAD ($cur) != mirror merge commit M ($M) — out-of-band push detected; aborting before terminal force-push"
             exit 1
           fi
+          # Also assert M's first parent is exactly pre_merge_head. The cur==M check above catches an
+          # out-of-band push landing AFTER our merge, but a push landing in the (up to ~60s) window
+          # BETWEEN pre_merge_head capture and the merge is absorbed as M's first parent — it would
+          # pass cur==M and then be silently dropped by the terminal force-push (leased against M).
+          # The pre-admin-merge code failed safe here (BLOCKED→job fails→no force-push); --admin
+          # removes that fail-safe, so guard it explicitly. Fail closed: next run's reconcile-guard
+          # backs up + heals. (Consumes pre_merge_head, previously captured for logging only.)
+          mp1=$(gh api "repos/${TARGET_REPO}/commits/${M}" --jq '.parents[0].sha // ""')
+          if [ "$mp1" != "${pre_merge_head:-}" ]; then
+            echo "::error::mirror merge commit M ($M) first parent ($mp1) != pre_merge_head (${pre_merge_head:-unset}) — target advanced between pre-merge capture and merge; aborting before terminal force-push"
+            exit 1
+          fi
           echo "post_merge_head=$M" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@v6
