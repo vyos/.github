@@ -463,6 +463,12 @@ jobs:
           fi
 
           gh issue edit "$PR_NUMBER" --repo "$SOURCE_REPO" --add-label "$label_name"
+          # round-5 (adversarial Low): on the PROCEED path only, clear any stale mirror-completed
+          # so a rewound PR that re-mirrors then FAILS ends with just mirror-failed — not a
+          # misleading completed+failed pair. This step is gated `mirror_required == 'true'`, so the
+          # reachability-skip path (a reachable PR whose mirror-completed is correct) is untouched.
+          # Tolerant of "label not present" (a normal new PR has no mirror-completed yet).
+          gh issue edit "$PR_NUMBER" --repo "$SOURCE_REPO" --remove-label "$MIRROR_COMPLETED_LABEL" 2>/dev/null || true
 
       - name: Create checkout folder
         if: env.mirror_required == 'true'
