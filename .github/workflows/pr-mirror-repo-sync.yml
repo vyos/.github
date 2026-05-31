@@ -145,6 +145,67 @@ jobs:
           echo "target=$target" >> $GITHUB_OUTPUT
           echo "consumer matched: source=$CALLING_REPO target=$target (read from ${CONSUMERS_REPO}@${ref})"
 
+  reconcile-guard:
+    name: reconcile target rolling (guard)
+    needs: check-consumer-inclusion
+    if: needs.check-consumer-inclusion.outputs.consumer_found == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      reconciled: ${{ steps.guard.outputs.reconciled }}
+      reconcile_action: ${{ steps.guard.outputs.reconcile_action }}
+    steps:
+      - name: Bullfrog Secure Runner
+        continue-on-error: true
+        uses: bullfrogsec/bullfrog@v0.8.4
+        with:
+          egress-policy: audit
+      - id: source-token
+        uses: vyos/.github/.github/actions/get-token@production
+        with:
+          owner: vyos
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+      - id: target-token
+        uses: vyos/.github/.github/actions/get-token@production
+        with:
+          owner: VyOS-Networks
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+      - id: parse-ref
+        env:
+          WORKFLOW_REF: ${{ job.workflow_ref }}
+        run: |
+          # job.workflow_ref: "vyos/.github/.github/workflows/pr-mirror-repo-sync.yml@refs/heads/feature/..."
+          # Extract the ref portion after the "@" so actions/checkout can use it.
+          ref="${WORKFLOW_REF##*@}"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v6
+        with:
+          repository: vyos/.github
+          ref: ${{ steps.parse-ref.outputs.ref }}
+          path: _central
+          persist-credentials: false
+          token: ${{ steps.source-token.outputs.token }}
+      - id: guard
+        env:
+          GH_TOKEN_SOURCE: ${{ steps.source-token.outputs.token }}
+          GH_TOKEN_TARGET: ${{ steps.target-token.outputs.token }}
+          SOURCE_REPO: ${{ github.repository }}
+          TARGET_REPO: ${{ needs.check-consumer-inclusion.outputs.target }}
+          SYNC_BRANCH: ${{ github.event.pull_request.base.ref || inputs.sync_branch }}
+          RUN_TAG: ${{ github.run_id }}-${{ github.run_attempt }}
+          MIRROR_ENABLED: ${{ vars.MIRROR_ENABLED }}
+        run: |
+          set -euo pipefail
+          [ "$SYNC_BRANCH" = "rolling" ] || { echo "reconcile-guard: branch '$SYNC_BRANCH' != rolling; skip"; echo "reconciled=skipped" >> "$GITHUB_OUTPUT"; exit 0; }
+          [ "$MIRROR_ENABLED" != "false" ] || { echo "reconcile-guard: kill-switch off; skip"; echo "reconciled=skipped" >> "$GITHUB_OUTPUT"; exit 0; }
+          out=$(bash _central/.github/scripts/reconcile-rolling.sh \
+            "$SOURCE_REPO" "$TARGET_REPO" "$SYNC_BRANCH" GUARD "$RUN_TAG")
+          echo "$out"
+          action=$(printf '%s\n' "$out" | sed -n 's/^reconcile_action=//p' | tail -1)
+          echo "reconciled=ok" >> "$GITHUB_OUTPUT"
+          echo "reconcile_action=${action:-noop}" >> "$GITHUB_OUTPUT"
+
   apply-mirror-skipped-label:
     name: apply mirror-skipped label
     needs: check-consumer-inclusion
@@ -177,11 +238,14 @@ jobs:
 
   get-unmirrored-PRs:
     name: get unmirrored PRs
-    needs: check-consumer-inclusion
-    if: needs.check-consumer-inclusion.outputs.consumer_found == 'true'
+    needs: [check-consumer-inclusion, reconcile-guard]
+    if: |
+      needs.check-consumer-inclusion.outputs.consumer_found == 'true'
+      && needs.reconcile-guard.outputs.reconciled != ''
     runs-on: ubuntu-latest
     outputs:
-      unmirrored_prs: ${{ steps.get-unmirrored-prs.outputs.unmirrored_prs }}
+      # Coalesce: reset path sets unmirrored-reachability; steady-state sets get-unmirrored-prs.
+      unmirrored_prs: ${{ steps.unmirrored-reachability.outputs.unmirrored_prs || steps.get-unmirrored-prs.outputs.unmirrored_prs }}
     steps:
       - name: Bullfrog Secure Runner
         continue-on-error: true
@@ -196,7 +260,53 @@ jobs:
           client-id: ${{ vars.APP_CLIENT_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
+      - id: target-token
+        uses: vyos/.github/.github/actions/get-token@production
+        with:
+          owner: VyOS-Networks
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      # ── Reset path: reachability-based replay set (B4 Step 1) ──────────────────
+      # When the guard performed a case-3 reset, derive the replay set from git
+      # reachability — not from labels — so stale mirror-completed PRs are replayed.
+      - name: Get unmirrored PRs (reachability — reset path)
+        id: unmirrored-reachability
+        if: needs.reconcile-guard.outputs.reconcile_action == 'reset'
+        env:
+          GH_TOKEN_SOURCE: ${{ steps.source-token.outputs.token }}
+          GH_TOKEN_TARGET: ${{ steps.target-token.outputs.token }}
+          SOURCE_REPO: ${{ github.repository }}
+          TARGET_REPO: ${{ needs.check-consumer-inclusion.outputs.target }}
+          SYNC_BRANCH: ${{ github.event.pull_request.base.ref || inputs.sync_branch }}
+        run: |
+          set -euo pipefail
+          work="$(mktemp -d)"
+          git clone --quiet "https://x-access-token:${GH_TOKEN_SOURCE}@github.com/${SOURCE_REPO}.git" "$work/src"
+          cd "$work/src"
+          git remote add target "https://x-access-token:${GH_TOKEN_TARGET}@github.com/${TARGET_REPO}.git"
+          # explicit destination refspec — a bare `git fetch target <branch>` may only
+          # write FETCH_HEAD, NOT refs/remotes/target/<branch>, so merge-base would fail
+          # "unknown revision" → false "absent" (Codex round-5 finding).
+          git fetch --quiet target "${SYNC_BRANCH}:refs/remotes/target/${SYNC_BRANCH}"
+          # paginate ALL merged PRs ascending by mergedAt (not capped at 500).
+          # Use gh api --paginate ALONE — do NOT also loop ?page= manually (round-2 finding #3).
+          entries=$(GH_TOKEN="$GH_TOKEN_SOURCE" gh api --paginate \
+            "repos/${SOURCE_REPO}/pulls?state=closed&base=${SYNC_BRANCH}&per_page=100" \
+            --jq '.[] | select(.merged_at != null) | "\(.merged_at) \(.number) \(.merge_commit_sha)"' 2>/dev/null || true)
+          out="[]"
+          while read -r _mergedAt n sha; do
+            [ -n "${sha:-}" ] || continue
+            if ! git merge-base --is-ancestor "$sha" "refs/remotes/target/${SYNC_BRANCH}" 2>/dev/null; then
+              out=$(echo "$out" | jq -c ". + [$n]")
+            fi
+          done < <(printf '%s' "$entries" | sort)
+          echo "unmirrored_prs=$out" >> "$GITHUB_OUTPUT"
+          rm -rf "$work"
+
+      # ── Steady-state path: label/high-watermark walk (B4 Step 2) ───────────────
       - name: Check first mirror
+        if: needs.reconcile-guard.outputs.reconcile_action != 'reset'
         env:
           GH_TOKEN: ${{ steps.source-token.outputs.token }}
           GITHUB_TOKEN: ${{ steps.source-token.outputs.token }}
@@ -215,7 +325,7 @@ jobs:
           fi
 
       - name: Get last mirrored or skipped PR date
-        if: env.first_mirror == 'false'
+        if: needs.reconcile-guard.outputs.reconcile_action != 'reset' && env.first_mirror == 'false'
         id: get-last-mirrored-date
         uses: actions/github-script@v6
         env:
@@ -260,6 +370,7 @@ jobs:
 
       - name: Get unmirrored PRs
         id: get-unmirrored-prs
+        if: needs.reconcile-guard.outputs.reconcile_action != 'reset'
         uses: actions/github-script@v6
         env:
           GH_TOKEN: ${{ steps.source-token.outputs.token }}
@@ -313,15 +424,20 @@ jobs:
 
 
   process-unmirrored-PR:
-    needs: get-unmirrored-PRs
+    needs: [get-unmirrored-PRs, reconcile-guard]
     if: needs.get-unmirrored-PRs.outputs.unmirrored_prs != '[]'
     runs-on: ubuntu-latest
     strategy:
       matrix:
         pr_number: ${{ fromJson(needs.get-unmirrored-PRs.outputs.unmirrored_prs) }}
-      max-parallel: 1
+      max-parallel: 1  # serial ordering — ascending mergedAt from both paths; B4 Step 4 confirmed
     env:
       PR_NUMBER: ${{ matrix.pr_number }}
+      # RESET_MODE: true when the guard performed a case-3 reset this run.
+      # In reset mode the replay set is reachability-derived; stale mirror labels
+      # must NOT skip PRs (B4 Step 3). Each PR also re-checks reachability before
+      # any side effect (B4 Step 3.5) since earlier serial items can advance target.
+      RESET_MODE: ${{ needs.reconcile-guard.outputs.reconcile_action == 'reset' }}
     steps:
 
       - id: source-token
@@ -342,13 +458,58 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.source-token.outputs.token }}
         run: |
-          pr_labels=$(gh pr view $PR_NUMBER --repo $SOURCE_REPO --json labels --jq '.labels | map(.name)')
-          if [[ $pr_labels == *"${MIRROR_COMPLETED_LABEL}"* ]] || [[ $pr_labels == *"${MIRROR_INITIATED_LABEL}"* ]]; then
-            echo "PR #${PR_NUMBER} in source repo already has '${MIRROR_COMPLETED_LABEL}' or '${MIRROR_INITIATED_LABEL}' label"
-            echo "mirror_required=false" >> $GITHUB_ENV
-          else
+          # B4 Step 3: in reset mode the replay set is reachability-derived — stale
+          # mirror-completed / mirror-initiated labels must NOT skip the PR (the commit
+          # was rewound off target; the label is stale). Set mirror_required=true for all
+          # PRs the matrix received, then clear the stale labels so the steady-state
+          # high-watermark walk does not anchor on a PR whose commit is gone from target.
+          if [ "${RESET_MODE:-false}" = "true" ]; then
+            echo "reset mode: bypassing label skip for PR ${PR_NUMBER} (reachability-derived replay set)"
+            # Remove stale terminal/transient labels so the high-watermark walk is clean
+            # next steady-state run. Ignore "label not present" errors with || true.
+            gh issue edit "$PR_NUMBER" --repo "$SOURCE_REPO" \
+              --remove-label "$MIRROR_COMPLETED_LABEL" \
+              --remove-label "$MIRROR_INITIATED_LABEL" 2>/dev/null || true
             echo "mirror_required=true" >> $GITHUB_ENV
+          else
+            pr_labels=$(gh pr view $PR_NUMBER --repo $SOURCE_REPO --json labels --jq '.labels | map(.name)')
+            if [[ $pr_labels == *"${MIRROR_COMPLETED_LABEL}"* ]] || [[ $pr_labels == *"${MIRROR_INITIATED_LABEL}"* ]]; then
+              echo "PR #${PR_NUMBER} in source repo already has '${MIRROR_COMPLETED_LABEL}' or '${MIRROR_INITIATED_LABEL}' label"
+              echo "mirror_required=false" >> $GITHUB_ENV
+            else
+              echo "mirror_required=true" >> $GITHUB_ENV
+            fi
           fi
+
+      # ── B4 Step 3.5: Reset-mode per-PR reachability re-check ──────────────────
+      # With max-parallel:1, mirroring earlier PRs advances target rolling, which
+      # can make a later PR's merge commit reachable before its turn. Re-check here
+      # (before any side effect) and skip if already reachable — avoids a redundant
+      # empty mirror PR. Self-contained (own mktemp clone; does NOT use $checkout_folder
+      # which is created later at the "Create checkout folder" step).
+      - name: Reset-mode per-PR reachability re-check
+        if: env.RESET_MODE == 'true' && env.mirror_required == 'true'
+        env:
+          GH_TOKEN_SOURCE: ${{ steps.source-token.outputs.token }}
+          GH_TOKEN_TARGET: ${{ steps.target-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          msha=$(GH_TOKEN="$GH_TOKEN_SOURCE" gh pr view "$PR_NUMBER" --repo "$SOURCE_REPO" --json mergeCommit --jq '.mergeCommit.oid')
+          rc="$(mktemp -d)"
+          git clone --quiet --no-checkout "https://x-access-token:${GH_TOKEN_SOURCE}@github.com/${SOURCE_REPO}.git" "$rc"
+          cd "$rc"
+          git remote add target "https://x-access-token:${GH_TOKEN_TARGET}@github.com/${TARGET_REPO}.git"
+          git fetch --quiet origin
+          # explicit destination refspec (Codex round-5): ensures refs/remotes/target/<branch>
+          # exists for merge-base; a bare `git fetch target <branch>` may only set FETCH_HEAD.
+          git fetch --quiet target "${SYNC_BRANCH}:refs/remotes/target/${SYNC_BRANCH}"
+          if git merge-base --is-ancestor "$msha" "refs/remotes/target/${SYNC_BRANCH}" 2>/dev/null; then
+            echo "reset-mode: PR ${PR_NUMBER} merge commit ${msha} is NOW reachable from target (carried by an earlier replay item); skipping"
+            echo "mirror_required=false" >> "$GITHUB_ENV"
+          else
+            echo "reset-mode: PR ${PR_NUMBER} still absent from target; proceeding"
+          fi
+          cd - >/dev/null; rm -rf "$rc"
 
       # ── Side effect #1: Apply mirror-initiated label on source PR ──
       - name: Re-check kill-switch before side effect
@@ -433,7 +594,7 @@ jobs:
             else
               echo "::error::No mirrored or skipped PR found for previous merged source PR #${previous_merged_source_pr}"
               echo "::error::Please check and make sure to run the sync in order"
-              exit -1
+              exit 1
             fi
           fi
 
@@ -571,6 +732,16 @@ jobs:
             exit 1
           fi
 
+      # B3 Step 1a: Record pre-merge target HEAD (for logging; M is the authoritative lease baseline)
+      - name: Record pre-merge target HEAD
+        if: env.mirror_required == 'true'
+        env:
+          GH_TOKEN: ${{ steps.target-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          pre=$(gh api "repos/${TARGET_REPO}/git/ref/heads/${SYNC_BRANCH}" --jq .object.sha)
+          echo "pre_merge_head=$pre" >> "$GITHUB_ENV"
+
       - name: Merge mirror PR
         if: env.mirror_required == 'true'
         env:
@@ -578,11 +749,34 @@ jobs:
         run: |
           gh pr merge --repo ${TARGET_REPO} --merge $mirror_pr_number
 
-      - name: Wait for GitHub PR merge propagation
+      # B3 Step 1b: Capture mirror PR merge commit (lease baseline M).
+      # Poll until the mirror PR reports mergeCommit.oid (state==MERGED), then require
+      # target HEAD == M exactly. If HEAD is already beyond M an out-of-band push landed
+      # after our merge — abort before the terminal force-push so we don't overwrite it.
+      # (Supersedes the blind sleep 10 / "Wait for GitHub PR merge propagation".)
+      - name: Capture mirror PR merge commit (lease baseline M)
         if: env.mirror_required == 'true'
+        env:
+          GH_TOKEN: ${{ steps.target-token.outputs.token }}
         run: |
-          echo "Waiting 10 seconds for GitHub to propagate merge refs..."
-          sleep 10
+          set -euo pipefail
+          M=""
+          for _i in $(seq 1 24); do
+            M=$(gh pr view "$mirror_pr_number" --repo "${TARGET_REPO}" --json mergeCommit,state \
+                  --jq 'select(.state=="MERGED") | .mergeCommit.oid' 2>/dev/null || echo "")
+            [ -n "$M" ] && break
+            sleep 5
+          done
+          [ -n "$M" ] || { echo "::error::mirror PR ${mirror_pr_number} not MERGED / no mergeCommit after 2 min; abort"; exit 1; }
+          # Require current target HEAD to be exactly M. If it is beyond M, an out-of-band
+          # push landed after our merge — abort before the terminal force-push so we don't
+          # overwrite it unbacked. (next run's reconcile-guard will back it up and heal)
+          cur=$(gh api "repos/${TARGET_REPO}/git/ref/heads/${SYNC_BRANCH}" --jq .object.sha)
+          if [ "$cur" != "$M" ]; then
+            echo "::error::target ${SYNC_BRANCH} HEAD ($cur) != mirror merge commit M ($M) — out-of-band push detected; aborting before terminal force-push"
+            exit 1
+          fi
+          echo "post_merge_head=$M" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@v6
         if: env.mirror_required == 'true'
@@ -619,8 +813,15 @@ jobs:
           git remote set-url origin "https://x-access-token:$GITHUB_TOKEN@github.com/${TARGET_REPO}"
           git remote add tmp_source "$source_repo_url"
           git fetch tmp_source --quiet
-          git push origin "${last_commit}:refs/heads/${SYNC_BRANCH}" --force
-          git push origin "${merge_commit}:refs/heads/${SYNC_BRANCH}" --force
+          # B3 Step 2: lease against post_merge_head (M) — a human push U landing after
+          # the gh pr merge makes cur != M and the capture step above would have aborted.
+          # If we reach here, cur == M is guaranteed. On lease failure (extremely unlikely
+          # race), surface for reconcile rather than retrying blind.
+          if ! git push origin "${last_commit}:refs/heads/${SYNC_BRANCH}" --force-with-lease="refs/heads/${SYNC_BRANCH}:${post_merge_head}"; then
+            echo "::error::terminal force-push lease failed (target moved past post-merge HEAD ${post_merge_head}); out-of-band push detected — aborting before overwrite"
+            exit 1
+          fi
+          git push origin "${merge_commit}:refs/heads/${SYNC_BRANCH}" --force-with-lease="refs/heads/${SYNC_BRANCH}:${last_commit}"
           git remote rm tmp_source
 
       # ── Side effect #6: Swap source PR label mirror-initiated → mirror-completed/-failed ──
