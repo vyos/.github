@@ -9,6 +9,12 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
+      - name: Bullfrog Secure Runner
+        continue-on-error: true
+        uses: bullfrogsec/bullfrog@v0.8.4
+        with:
+          egress-policy: audit
+
       # get-token is a COMPOSITE ACTION (not a reusable workflow).
       # Call it at STEP level inside the job with owner: vyos.
       - id: token
@@ -38,8 +44,8 @@ jobs:
           # comment-template edits and is invisible to readers but greppable.
           SENTINEL='<!-- lts-name-check: posted -->'
           existing=$(gh api --paginate "repos/${PR_REPO}/issues/${PR_NUM}/comments" \
-            --jq "[.[] | select((.user.login | endswith(\"[bot]\")) and (.body | contains(\"$SENTINEL\")))] | length")
-          if [ "$existing" != "0" ]; then
+            --jq ".[] | select((.user.login | endswith(\"[bot]\")) and (.body | contains(\"$SENTINEL\"))) | .id")
+          if [ -n "$existing" ]; then
             echo "advisory comment already present (sentinel found); skipping"
             exit 0
           fi
