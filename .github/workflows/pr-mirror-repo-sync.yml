@@ -523,12 +523,13 @@ jobs:
           fi
           echo "last_commit=${last_commit}" >> $GITHUB_ENV
           echo "merge_commit=${merge_commit}" >> $GITHUB_ENV
-          # Write full PR body to a tmp file for later usage
+          # Write link-only PR body to a tmp file (spec §4.2.6 — no source body in mirror chain).
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           {
             echo "**Note**: This pull request is mirrored from PR [$PR_NUMBER](https://github.com/${SOURCE_REPO}/pull/${PR_NUMBER}) using [workflow run](${run_url})."
             echo ""
-            printf '%s\n' "$pr_body"   # exact preservation
+            echo "Mirror PR body is link-only — no LTS metadata in the mirror chain."
+            echo "Backport intent lives on this mirror PR: Maintainers post a backport command post-merge."
           } > /tmp/pr_body.txt
           echo "Last commit retrieved ${last_commit}, Merge commit retrieved ${merge_commit}, PR labels retrieved ${pr_labels}"
 
@@ -585,33 +586,33 @@ jobs:
           pr_number=$(basename $pr_url)
           echo "mirror_pr_number=${pr_number}" >> $GITHUB_ENV
 
+      # ── Side effect #4: Apply backport-pending label to mirror PR (marker only) ──
       - name: Re-check kill-switch before side effect
         if: env.mirror_required == 'true'
         env:
           MIRROR_ENABLED: ${{ vars.MIRROR_ENABLED }}
         run: |
           if [ "$MIRROR_ENABLED" = "false" ]; then
-            echo "::error::kill-switch flipped to false mid-run; aborting before side effect (backport comment)"
+            echo "::error::kill-switch flipped to false mid-run; aborting before side effect (backport-pending label)"
             exit 1
           fi
 
-      - name: Add mirror PR backport
+      - name: Apply backport-pending label to mirror PR
         if: env.mirror_required == 'true'
         env:
           GH_TOKEN: ${{ steps.target-token.outputs.token }}
         run: |
-          IFS=',' read -r -a labels <<< "$pr_labels"
-          for label in "${labels[@]}"; do
-            if [[ $label == bp/* ]]; then
-              bp_branch=${label#bp/}
-              if [[ -n "$bp_branch" ]]; then
-                echo "Adding backport for branch ${bp_branch}"
-                gh pr comment --repo ${TARGET_REPO} --body "@Mergifyio backport ${bp_branch}" $mirror_pr_number
-              fi
-            fi
-          done
+          # Ensure the label exists on the target repo before applying it — mirrors the
+          # create_label_if_not_exists pattern used for other mirror labels in this workflow.
+          if [[ $(gh label list --repo "$TARGET_REPO" --json name --jq '[.[].name] | index("backport-pending") != null') != "true" ]]; then
+            gh label create "backport-pending" --repo "$TARGET_REPO" --color "fbca04" \
+              --description "Mirror PR awaiting an LTS backport decision"
+          fi
+          gh api -X POST \
+            "repos/${TARGET_REPO}/issues/${mirror_pr_number}/labels" \
+            -f "labels[]=backport-pending"
 
-      # ── Side effect #4: Auto-merge mirror PR ──
+      # ── Side effect #5: Auto-merge mirror PR ──
       - name: Re-check kill-switch before side effect
         if: env.mirror_required == 'true'
         env:

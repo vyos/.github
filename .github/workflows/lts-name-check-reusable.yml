@@ -1,0 +1,52 @@
+name: LTS-name advisory check (reusable)
+
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      # get-token is a COMPOSITE ACTION (not a reusable workflow).
+      # Call it at STEP level inside the job with owner: vyos.
+      - id: token
+        uses: vyos/.github/.github/actions/get-token@production
+        with:
+          owner: vyos
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Scan PR title + body for LTS branch names
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Generic regex — case-insensitive word boundaries.
+          # NOTE: do NOT echo matched terms in the comment body.
+          combined=$(printf '%s\n%s' "$PR_TITLE" "$PR_BODY")
+          if ! echo "$combined" | grep -qiE '\b(sagitta|circinus|equuleus)\b'; then
+            echo "no LTS branch names found in PR title/body"
+            exit 0
+          fi
+          # Idempotency: use a stable hidden HTML-comment sentinel. Survives
+          # comment-template edits and is invisible to readers but greppable.
+          SENTINEL='<!-- lts-name-check: posted -->'
+          existing=$(gh api --paginate "repos/${PR_REPO}/issues/${PR_NUM}/comments" \
+            --jq "[.[] | select((.user.login | endswith(\"[bot]\")) and (.body | contains(\"$SENTINEL\")))] | length")
+          if [ "$existing" != "0" ]; then
+            echo "advisory comment already present (sentinel found); skipping"
+            exit 0
+          fi
+          # Post the advisory. Body wording is generic — no matched name, no "backport".
+          comment_body=$(printf '%s\n\n%s\n' \
+            "This PR's title or description appears to reference a VyOS LTS release-train branch name. Please remove release-train branch names from the title and body before merge. This is a non-blocking advisory; no action is required to merge." \
+            "$SENTINEL")
+          gh api -X POST "repos/${PR_REPO}/issues/${PR_NUM}/comments" \
+            -f body="$comment_body"
+          echo "advisory comment posted on PR #${PR_NUM}"
