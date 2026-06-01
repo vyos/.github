@@ -606,7 +606,7 @@ jobs:
           # create_label_if_not_exists pattern used for other mirror labels in this workflow.
           if [[ $(gh label list --repo "$TARGET_REPO" --json name --jq '[.[].name] | index("backport-pending") != null') != "true" ]]; then
             gh label create "backport-pending" --repo "$TARGET_REPO" --color "fbca04" \
-              --description "Mirror PR awaiting an LTS backport decision (Rollout 3)"
+              --description "Mirror PR awaiting an LTS backport decision"
           fi
           gh api -X POST \
             "repos/${TARGET_REPO}/issues/${mirror_pr_number}/labels" \
