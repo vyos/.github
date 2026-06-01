@@ -34,11 +34,9 @@ jobs:
       consumer_backport_branches: ${{ steps.validate.outputs.consumer_backport_branches }}
       skip: ${{ steps.idempotency.outputs.skip }}
     steps:
-      - name: Bullfrog Secure Runner
-        continue-on-error: true
-        uses: bullfrogsec/bullfrog@v0.8.4
-        with:
-          egress-policy: audit
+      # NOTE: no third-party action (e.g. Bullfrog) before the token-minting step — keeping
+      # untrusted actions out of jobs that handle secrets.APP_PRIVATE_KEY avoids a token-theft
+      # surface (adversarial-review finding). Egress-audit belongs on no-secret jobs only.
       # get-token is a COMPOSITE action (v7) — called at step level; output is job-local.
       - name: Mint App token
         id: token
@@ -178,11 +176,8 @@ jobs:
       && needs.parse-and-validate.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
-      - name: Bullfrog Secure Runner
-        continue-on-error: true
-        uses: bullfrogsec/bullfrog@v0.8.4
-        with:
-          egress-policy: audit
+      # NOTE: no third-party action before the token-minting step (token-theft-surface avoidance —
+      # adversarial-review finding). This job clones + force-pushes + opens a PR with the App token.
       # Composite get-token (v7) — minted fresh in this job (outputs are job-local).
       - name: Mint App token
         id: token
