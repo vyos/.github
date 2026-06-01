@@ -343,7 +343,11 @@ jobs:
           done
           echo "unmirrored_prs=$out" >> "$GITHUB_OUTPUT"
           echo "pr_landing_shas=$landing" >> "$GITHUB_OUTPUT"
-          rm -rf "$work"
+          # Non-fatal cleanup (T8943): a spurious `rm: cannot remove .../.git/objects:
+          # Directory not empty` (filesystem/handle race) as the step's last command would
+          # fail the step under set -e. The outputs above are already written; runner is
+          # ephemeral — never let cleanup gate the result.
+          rm -rf "$work" 2>/dev/null || true
 
 
   process-unmirrored-PR:
@@ -434,7 +438,10 @@ jobs:
             echo "PR ${PR_NUMBER} still absent from target; proceeding"
             echo "mirror_required=true" >> "$GITHUB_ENV"
           fi
-          cd - >/dev/null; rm -rf "$rc"
+          # Non-fatal cleanup (T8943): a spurious temp-dir rm failure under set -e would fail
+          # the step AFTER the reachability decision above, stranding the PR as mirror-failed.
+          # The decision is already recorded in $GITHUB_ENV; runner is ephemeral.
+          cd - >/dev/null; rm -rf "$rc" 2>/dev/null || true
 
       # ── Side effect #1: Apply mirror-initiated label on source PR ──
       - name: Re-check kill-switch before side effect
