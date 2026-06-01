@@ -44,7 +44,7 @@ if [ "$S" = "$T" ]; then
 fi
 
 # Full-depth clone of source; add target remote; fetch both (lease baseline + ancestry)
-work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
+work="$(mktemp -d)"; trap 'rm -rf "$work" 2>/dev/null || true' EXIT
 git clone --quiet "https://x-access-token:$GH_TOKEN_SOURCE@github.com/$SRC.git" "$work/src"
 cd "$work/src"
 git remote add target "https://x-access-token:$GH_TOKEN_TARGET@github.com/$TGT.git"
