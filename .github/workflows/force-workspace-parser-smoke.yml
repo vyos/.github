@@ -18,97 +18,242 @@ jobs:
         uses: bullfrogsec/bullfrog@v0.8.4
         with:
           egress-policy: audit
-      - name: Assert parser produces EXACT expected SHA + branch on fixtures
+      - name: Assert extract_pairs produces EXACT expected (sha, branch) pairs on real fixtures
         run: |
           set -euo pipefail
           # Use the EXACT same parser as force-workspace-backport.yml.
-          # This block must stay in lockstep with the parser there.
+          # The LOCKSTEP PARSER BLOCK below (BRANCH_RE + SHA_RE + extract_pairs) must stay
+          # BYTE-IDENTICAL with the parse step in force-workspace-backport.yml.
           python3 - <<'PYEOF'
-          import re, sys
+          import re, sys, json
 
-          # Fixtures: each is (body, expected_sha, expected_branch). expected_sha=None means the
-          # parser MUST REJECT (ambiguous, no anchored SHA, or multi-branch) — negative cases.
+          # ===== LOCKSTEP PARSER BLOCK — byte-identical across force-workspace-backport.yml + this file =====
+          # Anchored to Mergify's REAL "No backport have been created" failure wording (verbatim from in-prod
+          # aborts captured 2026-06-02). Branch name is wrapped in backticks; the SHA is introduced by
+          # "Cherry-pick of <40hex> has failed:".
           #
-          # POSITIVE fixtures use Mergify's REAL "No backport have been created" wording, captured
-          # verbatim from in-prod abort VyOS-Networks/vyos-1x#2116 (2026-05-15). The branch name is
-          # wrapped in backticks; the SHA is introduced by "Cherry-pick of <40hex> has failed:".
-          # If Mergify's failure-comment format ever drifts from this, THIS test goes red — which is
-          # the guard the prior (fictional-wording) fixtures failed to provide.
-          FIXTURES = [
-            # Positive (real circinus abort, verbatim from #2116):
-            ("""#### ❌ No backport have been created
-
-          * Backport to branch `circinus` failed due to conflicts
-
-          Cherry-pick of 6df7ca2f61ce1aa8352e8dbb1fc6e9c5d6d42937 has failed:
-          You are currently cherry-picking commit 6df7ca2f6.""",
-             "6df7ca2f61ce1aa8352e8dbb1fc6e9c5d6d42937", "circinus"),
-            # Positive (real-wording sagitta variant):
-            ("""#### ❌ No backport have been created
-
-          * Backport to branch `sagitta` failed due to conflicts
-
-          Cherry-pick of abcdef1234567890abcdef1234567890abcdef12 has failed:""",
-             "abcdef1234567890abcdef1234567890abcdef12", "sagitta"),
-            # NEGATIVE: failure branch present but the only 40-hex is an UNRELATED bare SHA in a URL
-            # (no Cherry-pick-of/Backport-of anchor) → anchored SHA_RE finds 0 → must REJECT.
-            ("""No backport have been created.
-          * Backport to branch `sagitta` failed due to conflicts
-          See https://github.com/vyos/vyos-1x/commit/0000000000000000000000000000000000000000 for context.""",
-             None, None),
-            # NEGATIVE: two distinct anchored SHAs → ambiguous → must REJECT.
-            ("""Cherry-pick of 1111111111111111111111111111111111111111 has failed.
-          Cherry-pick of 2222222222222222222222222222222222222222 has failed.
-          * Backport to branch `circinus` failed due to conflicts""",
-             None, None),
-            # NEGATIVE: one comment naming TWO branches (e.g. `@Mergifyio backport sagitta circinus`
-            # where both fail) → two distinct branches → fail-closed REJECT (force_workspace acts on
-            # one branch per invocation; multi-branch is left to manual fallback — documented gap).
-            ("""#### ❌ No backport have been created
-          * Backport to branch `sagitta` failed due to conflicts
-          Cherry-pick of 6df7ca2f61ce1aa8352e8dbb1fc6e9c5d6d42937 has failed:
-          * Backport to branch `circinus` failed due to conflicts""",
-             None, None),
-          ]
-
-          # Lockstep with force-workspace-backport.yml's parse step (keep byte-identical):
+          # Multi-branch abort comments are Scenario A: Mergify posts ONE combined comment for a
+          # "@Mergifyio backport b1 b2" command (confirmed live - vyos/vyos-documentation#2024, where BOTH
+          # branches fail with DIFFERENT per-branch SHAs). extract_pairs therefore returns a LIST of
+          # (sha, branch) pairs: it segments the body by each failed "to branch `X`" bullet and takes the
+          # single Cherry-pick SHA found within each segment.
+          #   - success bullets render "has been created for branch `X`" ("for branch", NOT "to branch") so
+          #     BRANCH_RE excludes them (partial-success comments already worked single-branch).
+          #   - merge-commit / branch-not-found failures carry no "Cherry-pick of <40hex>" anchor, so their
+          #     segment yields 0 SHAs and that branch is skipped (logged) - fail-closed per branch.
           BRANCH_RE = r"to branch\s+`?(sagitta|circinus)`?\b"
           SHA_RE = r"\b(?:[Cc]herry-pick of|Backport of)\s+(?:commit\s+)?([0-9a-f]{40})\b"
 
-          # Lockstep with the reusable's parser: set-based with exactly-one-distinct assertion
-          # (anchored/ambiguity-safe). Keep identical to force-workspace-backport.yml's parse step.
+          def extract_pairs(body):
+              matches = list(re.finditer(BRANCH_RE, body, re.IGNORECASE))
+              pairs, seen = [], set()
+              for i, m in enumerate(matches):
+                  branch = m.group(1).lower()
+                  seg = body[m.start() : (matches[i + 1].start() if i + 1 < len(matches) else len(body))]
+                  shas = sorted(set(re.findall(SHA_RE, seg, re.IGNORECASE)))
+                  if len(shas) != 1:
+                      print(f"::warning::skip branch {branch}: {len(shas)} distinct cherry-pick SHAs in its segment (need exactly 1)", file=sys.stderr)
+                      continue
+                  key = (shas[0], branch)
+                  if key in seen:
+                      continue
+                  seen.add(key)
+                  pairs.append({"sha": shas[0], "branch": branch})
+              return pairs
+          # ===== END LOCKSTEP PARSER BLOCK =====
+
+          # FIXTURES: real Mergify abort-comment bodies captured verbatim from the fleet on 2026-06-02.
+          # Each is (name, body, expected_pairs); expected_pairs is a list of (sha, branch) tuples.
+          # If Mergify's failure-comment format ever drifts from these, THIS test goes red - the guard the
+          # prior (fictional-wording) fixtures failed to provide (see PR #143).
+          FIXTURES = [
+            # #2024 - both branches fail with conflicts in ONE comment, DIFFERENT per-branch SHAs.
+            ("vyos/vyos-documentation#2024 both-fail-conflict",
+          "\n".join([
+            "> backport circinus sagitta",
+            "",
+            "#### ❌ No backport have been created",
+            "",
+            "<details>",
+            "",
+            "* Backport to branch `circinus` failed due to conflicts",
+            "",
+            "Cherry-pick of dec7dcb1eae0e547bca403f82b39bbb0a40a5d00 has failed:",
+            "```",
+            "On branch mergify/bp/circinus/pr-2024",
+            "Your branch is ahead of 'origin/circinus' by 1 commit.",
+            "  (use \"git push\" to publish your local commits)",
+            "",
+            "You are currently cherry-picking commit dec7dcb1.",
+            "",
+            "Unmerged paths:",
+            "  (use \"git add/rm <file>...\" as appropriate to mark resolution)",
+            "\tdeleted by us:   docs/automation/terraform/terraformvyos.md",
+            "",
+            "no changes added to commit (use \"git add\" and/or \"git commit -a\")",
+            "```",
+            "",
+            "* Backport to branch `sagitta` failed due to conflicts",
+            "",
+            "Cherry-pick of 3c4b0d49a77e864bc20dc7b3609745912f59d585 has failed:",
+            "```",
+            "On branch mergify/bp/sagitta/pr-2024",
+            "Your branch is up to date with 'origin/sagitta'.",
+            "",
+            "You are currently cherry-picking commit 3c4b0d49.",
+            "",
+            "Unmerged paths:",
+            "  (use \"git add/rm <file>...\" as appropriate to mark resolution)",
+            "\tdeleted by us:   docs/cli.md",
+            "\tdeleted by us:   docs/installation/cloud/aws.md",
+            "",
+            "no changes added to commit (use \"git add\" and/or \"git commit -a\")",
+            "```",
+            "",
+            "</details>",
+          ]),
+             [("dec7dcb1eae0e547bca403f82b39bbb0a40a5d00", "circinus"),
+              ("3c4b0d49a77e864bc20dc7b3609745912f59d585", "sagitta")]),
+
+            # #1890 - both branches fail with a merge-commit (-m) error: NO "Cherry-pick of <sha>" anchor
+            # (the 40-hex appears only as "error: commit <sha> is a merge"). Not force-stageable -> [].
+            ("vyos/vyos-documentation#1890 both-fail-merge-error",
+          "\n".join([
+            "> backport circinus sagitta",
+            "",
+            "#### ❌ No backport have been created",
+            "",
+            "<details>",
+            "",
+            "* Backport to branch `circinus` failed",
+            "",
+            "Git reported the following error:",
+            "```",
+            "error: commit d1e5b5126af907215708fde817dcd309e579b725 is a merge but no -m option was given.",
+            "fatal: cherry-pick failed",
+            "```",
+            "",
+            "* Backport to branch `sagitta` failed",
+            "",
+            "Git reported the following error:",
+            "```",
+            "error: commit d1e5b5126af907215708fde817dcd309e579b725 is a merge but no -m option was given.",
+            "fatal: cherry-pick failed",
+            "```",
+            "",
+            "</details>",
+          ]),
+             []),
+
+            # #2016 - partial: circinus SUCCEEDS ("has been created for branch `circinus`" -> "for branch",
+            # not matched), sagitta fails. Exactly 1 stageable pair (sagitta).
+            ("vyos/vyos-documentation#2016 partial-one-ok-one-fail",
+          "\n".join([
+            "> backport circinus sagitta",
+            "",
+            "#### ❌ No backport have been created",
+            "",
+            "<details>",
+            "",
+            "* [#2025 fix(includes): rewrite need_improvement.txt as MyST (backport #2016)](https://github.com/vyos/vyos-documentation/pull/2025) has been created for branch `circinus`",
+            "* Backport to branch `sagitta` failed due to conflicts",
+            "",
+            "Cherry-pick of 82a06e1dc812ceba239aaabf4acd651a038bfee7 has failed:",
+            "```",
+            "On branch mergify/bp/sagitta/pr-2016",
+            "Your branch is up to date with 'origin/sagitta'.",
+            "",
+            "You are currently cherry-picking commit 82a06e1d.",
+            "",
+            "Unmerged paths:",
+            "\tboth modified:   docs/_include/need_improvement.txt",
+            "```",
+            "",
+            "</details>",
+          ]),
+             [("82a06e1dc812ceba239aaabf4acd651a038bfee7", "sagitta")]),
+
+            # #1878 - partial with a TYPO branch ("saggita" not in vocabulary; circinus success ignored) -> [].
+            ("vyos/vyos-documentation#1878 partial-typo-branch",
+          "\n".join([
+            "> backport circinus saggita",
+            "",
+            "#### ❌ No backport have been created",
+            "",
+            "<details>",
+            "",
+            "* [#1935 troubleshooting: T8608: document TCP ping (backport #1878)](https://github.com/vyos/vyos-documentation/pull/1935) has been created for branch `circinus`",
+            "* Backport to branch `saggita` failed",
+            "",
+            "GitHub error: ```Branch not found```",
+            "",
+            "</details>",
+          ]),
+             []),
+
+            # #2005 - both succeed -> header "Backports have been created"; only "for branch" bullets -> [].
+            # (In production the caller wrapper's contains(..., 'No backport have been created') never fires;
+            #  kept here to assert the parser never produces a pair for a success comment.)
+            ("vyos/vyos-documentation#2005 both-success",
+          "\n".join([
+            "> backport sagitta circinus",
+            "",
+            "#### ✅ Backports have been created",
+            "",
+            "<details>",
+            "",
+            "* [#2006 T8782 (backport #2005)](https://github.com/vyos/vyos-documentation/pull/2006) has been created for branch `sagitta`",
+            "* [#2007 T8782 (backport #2005)](https://github.com/vyos/vyos-documentation/pull/2007) has been created for branch `circinus`",
+            "",
+            "</details>",
+          ]),
+             []),
+
+            # #2116 - single-branch fail (the example cited in the reusable's comments). 1 pair.
+            ("VyOS-Networks/vyos-1x#2116 single-fail",
+          "\n".join([
+            "> backport circinus",
+            "",
+            "#### ❌ No backport have been created",
+            "",
+            "<details>",
+            "",
+            "* Backport to branch `circinus` failed due to conflicts",
+            "",
+            "Cherry-pick of 6df7ca2f61ce1aa8352e8dbb1fc6e9c5d6d42937 has failed:",
+            "```",
+            "On branch mergify/bp/circinus/pr-2116",
+            "Your branch is up to date with 'origin/circinus'.",
+            "",
+            "You are currently cherry-picking commit 6df7ca2f6.",
+            "```",
+            "",
+            "</details>",
+          ]),
+             [("6df7ca2f61ce1aa8352e8dbb1fc6e9c5d6d42937", "circinus")]),
+          ]
+
           failed = False
-          for body, expected_sha, expected_branch in FIXTURES:
-              shas = sorted(set(re.findall(SHA_RE, body, re.IGNORECASE)))
-              branches = sorted({m.lower() for m in re.findall(BRANCH_RE, body, re.IGNORECASE)})
-              rejected = (len(shas) != 1 or len(branches) != 1)
-              if expected_sha is None:
-                  # Negative fixture: the parser MUST reject (ambiguous / no anchored commit SHA).
-                  if rejected:
-                      print(f"OK (negative): correctly rejected — shas={shas} branches={branches}")
-                  else:
-                      print(f"FAIL (negative): expected rejection but extracted sha={shas} branch={branches}", file=sys.stderr)
-                      failed = True
-                  continue
-              if rejected:
-                  print(f"FAIL: ambiguous/none — shas={shas} branches={branches}", file=sys.stderr)
+          for name, body, expected in FIXTURES:
+              got = extract_pairs(body)
+              got_norm = sorted((p["sha"], p["branch"]) for p in got)
+              exp_norm = sorted(expected)
+              # Shape contract: the producer/consumer contract that fromJSON(pairs) + matrix.pair.sha /
+              # matrix.pair.branch consume - compact JSON round-trips, every element has exactly {sha,branch}.
+              serialized = json.dumps(got, separators=(",", ":"))
+              roundtrip = json.loads(serialized)
+              shape_ok = all(set(p.keys()) == {"sha", "branch"} for p in roundtrip)
+              if got_norm == exp_norm and shape_ok:
+                  print(f"OK: {name} -> {got_norm}")
+              else:
+                  print(f"FAIL: {name} -> got={got_norm} expected={exp_norm} shape_ok={shape_ok}", file=sys.stderr)
                   failed = True
-                  continue
-              if shas[0] != expected_sha:
-                  print(f"FAIL: sha mismatch — expected {expected_sha}, got {shas[0]}", file=sys.stderr)
-                  failed = True
-                  continue
-              if branches[0] != expected_branch:
-                  print(f"FAIL: branch mismatch — expected {expected_branch}, got {branches[0]}", file=sys.stderr)
-                  failed = True
-                  continue
-              print(f"OK: sha={shas[0]} branch={branches[0]}")
           if failed:
               sys.exit(1)
+          print("All fixtures passed.")
           PYEOF
 
-      # v7: Slack notify step REMOVED — SLACK_BOT_TOKEN / SLACK_VYOS_INFRA_CHANNEL_ID are not
-      # provisioned in either org (verified 2026-06-01). The smoke job's own red run status on
-      # `schedule` is the drift alert (visible in the Actions tab + any repo-level failure
-      # notifications). When the GHA-failure-notifications initiative provisions Slack secrets,
-      # wire a notify step here at that point (it would gate `if: failure() && secrets present`).
+      # Slack notify step REMOVED - SLACK_BOT_TOKEN / SLACK_VYOS_INFRA_CHANNEL_ID are not provisioned in
+      # either org (verified 2026-06-01). The smoke job's own red run status on `schedule` is the drift
+      # alert (visible in the Actions tab + repo-level failure notifications). Wire a notify step here when
+      # the GHA-failure-notifications initiative provisions Slack secrets (gated on if: failure() + secrets).

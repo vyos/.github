@@ -28,11 +28,10 @@ jobs:
   parse-and-validate:
     runs-on: ubuntu-latest
     outputs:
-      sha: ${{ steps.parse.outputs.sha }}
-      target_branch: ${{ steps.parse.outputs.target_branch }}
       consumer_force_workspace_enabled: ${{ steps.validate.outputs.enabled }}
-      consumer_backport_branches: ${{ steps.validate.outputs.consumer_backport_branches }}
-      skip: ${{ steps.idempotency.outputs.skip }}
+      # pairs: JSON array of {"sha","branch"} after allowlist + per-pair idempotency filtering.
+      # Consumed by the cherry-pick-and-force-stage matrix. "[]" = nothing to do (matrix skips).
+      pairs: ${{ steps.filter.outputs.pairs }}
     steps:
       # NOTE: no third-party action (e.g. Bullfrog) before the token-minting step — keeping
       # untrusted actions out of jobs that handle secrets.APP_PRIVATE_KEY avoids a token-theft
@@ -48,7 +47,7 @@ jobs:
       # F3 (provenance): re-verify the trigger inside the reusable (do NOT trust the wrapper's
       # `if:` alone). Re-FETCH the comment by id with the App token (authoritative — don't trust
       # the passed body either), assert author == mergify[bot] AND body contains the failure marker.
-      - name: Re-verify Mergify provenance + parse (anchored)
+      - name: Re-verify Mergify provenance + parse (sha, branch) pairs
         id: parse
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
@@ -68,34 +67,52 @@ jobs:
             echo "::error::provenance check failed — body lacks the 'No backport have been created' marker; aborting"
             exit 1
           fi
-          # F5 (anchoring + ambiguity): extract the SHA + target branch, requiring EXACTLY ONE
-          # distinct candidate of each across the comment. The whitelist restricts branches to the
-          # active LTS vocabulary (equuleus/1.3 dropped 2026-06-01 — EOL; add a token when an LTS opens).
+          # Extract every (sha, branch) PAIR from the abort comment. BODY is passed via env and read with
+          # os.environ — NOT interpolated into the python3 source (F6 hardening; no injection surface).
+          # Emits raw_pairs (compact JSON array) to $GITHUB_OUTPUT; the filter step applies the allowlist +
+          # per-pair idempotency. raw_pairs == [] is handled (→ RED) by the filter step.
           BODY="$(cat /tmp/mergify_comment_body.txt)" python3 - <<'PYEOF' >> "$GITHUB_OUTPUT"
-          import os, re, sys
+          import os, re, sys, json
           body = os.environ["BODY"]
-          # Anchored to Mergify's REAL "No backport have been created" failure wording, captured verbatim
-          # from in-prod abort VyOS-Networks/vyos-1x#2116 (2026-05-15):
-          #     #### ❌ No backport have been created
-          #     * Backport to branch `circinus` failed due to conflicts
-          #     Cherry-pick of 6df7ca2f61ce1aa8352e8dbb1fc6e9c5d6d42937 has failed:
-          # Branch name is wrapped in backticks; SHA is introduced by "Cherry-pick of <40hex>".
-          # (The earlier "(?:commit|Backport of)" / bare-"to branch" anchors never matched real output —
-          #  caught at the Rollout 4 canary pre-flight; the smoke fixtures had mirrored the wrong wording.)
+
+          # ===== LOCKSTEP PARSER BLOCK — byte-identical across force-workspace-backport.yml + this file =====
+          # Anchored to Mergify's REAL "No backport have been created" failure wording (verbatim from in-prod
+          # aborts captured 2026-06-02). Branch name is wrapped in backticks; the SHA is introduced by
+          # "Cherry-pick of <40hex> has failed:".
+          #
+          # Multi-branch abort comments are Scenario A: Mergify posts ONE combined comment for a
+          # "@Mergifyio backport b1 b2" command (confirmed live - vyos/vyos-documentation#2024, where BOTH
+          # branches fail with DIFFERENT per-branch SHAs). extract_pairs therefore returns a LIST of
+          # (sha, branch) pairs: it segments the body by each failed "to branch `X`" bullet and takes the
+          # single Cherry-pick SHA found within each segment.
+          #   - success bullets render "has been created for branch `X`" ("for branch", NOT "to branch") so
+          #     BRANCH_RE excludes them (partial-success comments already worked single-branch).
+          #   - merge-commit / branch-not-found failures carry no "Cherry-pick of <40hex>" anchor, so their
+          #     segment yields 0 SHAs and that branch is skipped (logged) - fail-closed per branch.
           BRANCH_RE = r"to branch\s+`?(sagitta|circinus)`?\b"
-          # SHA anchored to the failed-cherry-pick sentence so an unrelated bare 40-hex elsewhere
-          # (URL, prior-PR reference) is NOT picked up (F5/anchoring). "Backport of <sha>" kept as a
-          # robustness alternate; the short 9-hex "commit 6df7ca2f6" line is correctly ignored ({40}).
           SHA_RE = r"\b(?:[Cc]herry-pick of|Backport of)\s+(?:commit\s+)?([0-9a-f]{40})\b"
-          shas = sorted(set(re.findall(SHA_RE, body, re.IGNORECASE)))
-          branches = sorted({m.lower() for m in re.findall(BRANCH_RE, body, re.IGNORECASE)})
-          if len(shas) != 1 or len(branches) != 1:
-              print(f"Parse failed/ambiguous — distinct SHAs={shas}, branches={branches} (require exactly 1 each)", file=sys.stderr)
-              print("\n".join(body.splitlines()[:20]), file=sys.stderr)
-              sys.exit(1)
-          print(f"sha={shas[0]}")
-          print(f"target_branch={branches[0]}")
-          print(f"Parsed: SHA={shas[0]}, target_branch={branches[0]}", file=sys.stderr)
+
+          def extract_pairs(body):
+              matches = list(re.finditer(BRANCH_RE, body, re.IGNORECASE))
+              pairs, seen = [], set()
+              for i, m in enumerate(matches):
+                  branch = m.group(1).lower()
+                  seg = body[m.start() : (matches[i + 1].start() if i + 1 < len(matches) else len(body))]
+                  shas = sorted(set(re.findall(SHA_RE, seg, re.IGNORECASE)))
+                  if len(shas) != 1:
+                      print(f"::warning::skip branch {branch}: {len(shas)} distinct cherry-pick SHAs in its segment (need exactly 1)", file=sys.stderr)
+                      continue
+                  key = (shas[0], branch)
+                  if key in seen:
+                      continue
+                  seen.add(key)
+                  pairs.append({"sha": shas[0], "branch": branch})
+              return pairs
+          # ===== END LOCKSTEP PARSER BLOCK =====
+
+          pairs = extract_pairs(body)
+          print("raw_pairs=" + json.dumps(pairs, separators=(",", ":")))
+          print(f"extract_pairs found {len(pairs)} stageable pair(s): {pairs}", file=sys.stderr)
           PYEOF
 
       - name: Read consumers.yaml + validate
@@ -130,60 +147,99 @@ jobs:
           fi
           enabled=$(echo "$consumer" | jq -r '.force_workspace_enabled // false')
           backport_branches=$(echo "$consumer" | jq -c '.backport_branches // ["sagitta","circinus"]')
-          echo "enabled=$enabled" >> $GITHUB_OUTPUT
-          # Output name matches the job-level `outputs.consumer_backport_branches` mapping.
-          echo "consumer_backport_branches=$backport_branches" >> $GITHUB_OUTPUT
+          echo "enabled=$enabled" >> "$GITHUB_OUTPUT"
+          # Step output consumed by the filter step below (same job); no longer a job-level output.
+          echo "consumer_backport_branches=$backport_branches" >> "$GITHUB_OUTPUT"
 
-      - name: Validate target branch is in allowlist
-        env:
-          TARGET_BRANCH: ${{ steps.parse.outputs.target_branch }}
-          ALLOWLIST: ${{ steps.validate.outputs.consumer_backport_branches }}
-        run: |
-          if ! echo "$ALLOWLIST" | jq -e --arg b "$TARGET_BRANCH" 'index($b) != null' >/dev/null; then
-            echo "target_branch $TARGET_BRANCH not in allowlist $ALLOWLIST; aborting" >&2
-            exit 1
-          fi
-          echo "target_branch validated against allowlist"
-
-      - name: Idempotency check — does force-backport branch already exist?
-        id: idempotency
+      - name: Filter pairs (allowlist + per-pair idempotency)
+        id: filter
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
           REPO: ${{ github.repository }}
-          SHA: ${{ steps.parse.outputs.sha }}
-          TARGET: ${{ steps.parse.outputs.target_branch }}
+          RAW_PAIRS: ${{ steps.parse.outputs.raw_pairs }}
+          ALLOWLIST: ${{ steps.validate.outputs.consumer_backport_branches }}
         run: |
           set -euo pipefail
-          ref_name="force-backport/${SHA}/${TARGET}"
-          skip=false
-          # Idempotency: SKIP only when a PR for this deterministic head already exists (any state) —
-          # the work is done or in progress. A bare BRANCH with NO PR is NOT a skip: it is a failed
-          # prior run (pushed the branch, then errored before opening the PR). Treating branch-existence
-          # as a terminal skip would strand it forever (adversarial-review finding) — instead RECOVER
-          # (the push step force-overwrites the orphaned branch in our deterministic namespace, then the
-          # PR is opened). PR existence is checked across ALL states (a branch + its PR can diverge).
-          # Count only SAME-REPO PRs with that head — a fork/cross-repo PR could reuse the head
-          # branch name to poison this check and block recovery (adversarial round-2 finding).
-          existing_pr=$(gh pr list --repo "${REPO}" --head "${ref_name}" --state all \
-            --json number,isCrossRepository --jq '[.[] | select(.isCrossRepository == false)] | length')
-          if [ "${existing_pr:-0}" -gt 0 ]; then
-            skip=true
-            echo "Idempotent skip: a PR with head ${ref_name} already exists (state all)" >&2
-          # Singular `git/ref/heads/<name>` → HTTP 404 when ABSENT (the plural `git/refs/...` would
-          # return [] with 200 for an absent ref — the prior always-skip bug).
-          elif gh api "repos/${REPO}/git/ref/heads/${ref_name}" >/dev/null 2>&1; then
-            echo "::warning::orphaned branch refs/heads/${ref_name} exists with NO PR (failed prior run) — recovering: force-overwrite + open PR" >&2
-          fi
-          echo "skip=${skip}" >> "$GITHUB_OUTPUT"
-          [ "$skip" = "true" ] || echo "proceeding for ${ref_name}"
+          # RAW_PAIRS / ALLOWLIST / REPO passed via env and read with os.environ — NOT interpolated into the
+          # python3 source (F6 hardening; no injection surface). Emits the final `pairs` JSON to
+          # $GITHUB_OUTPUT, or exits non-zero (RED) for the "nothing force-stageable" / "all out of allowlist"
+          # cases. gh's own stdout is captured by subprocess so only `pairs=` reaches $GITHUB_OUTPUT.
+          python3 - <<'PYEOF' >> "$GITHUB_OUTPUT"
+          import os, sys, json, subprocess
+
+          repo = os.environ["REPO"]
+          raw = json.loads(os.environ["RAW_PAIRS"])
+          allowlist = set(json.loads(os.environ["ALLOWLIST"]))
+
+          # Stage 1 — raw empty → RED. No force-stageable branch (no "Cherry-pick of <sha>" anchor under any
+          # failed "to branch" bullet, e.g. merge-commit error / branch-not-found). Preserves the prior
+          # single-branch behaviour (nothing to do is a failure, not a silent green).
+          if not raw:
+              print("::error::no force-stageable branch in abort comment (no 'Cherry-pick of <sha>' anchor under any failed 'to branch' bullet)", file=sys.stderr)
+              sys.exit(1)
+
+          # Stage 2 — allowlist filter, per branch. Mixed (some in / some out) → process the in-list subset,
+          # log the dropped. ALL dropped → RED (preserves the prior single-branch allowlist-step failure).
+          after_allowlist = []
+          for p in raw:
+              if p["branch"] in allowlist:
+                  after_allowlist.append(p)
+              else:
+                  print(f"::warning::branch {p['branch']} not in consumer backport_branches {sorted(allowlist)}; skipping", file=sys.stderr)
+          if not after_allowlist:
+              dropped = sorted({p["branch"] for p in raw})
+              print(f"::error::aborted branch(es) {dropped} not in this consumer's backport_branches allowlist; aborting", file=sys.stderr)
+              sys.exit(1)
+
+          # Stage 3 — per-pair idempotency. Drop a pair iff a SAME-REPO (non-cross) PR with head
+          # force-backport/<sha>/<branch> already exists (state all) — work done/in-progress. A fork PR could
+          # reuse the head name to poison the check, so only same-repo PRs count (adversarial round-2). An
+          # orphaned BRANCH with NO PR is KEPT (the push step force-overwrites it; treating branch-existence
+          # as a terminal skip would strand a failed prior run). All remaining already have PRs → green
+          # no-op (pairs=[] → the matrix is guarded by `pairs != '[]'` and skips).
+          def pr_exists(ref):
+              out = subprocess.run(
+                  ["gh", "pr", "list", "--repo", repo, "--head", ref, "--state", "all",
+                   "--json", "number,isCrossRepository",
+                   "--jq", "[.[] | select(.isCrossRepository == false)] | length"],
+                  capture_output=True, text=True, check=True).stdout.strip()
+              return int(out or "0") > 0
+
+          def branch_exists(ref):
+              # Singular git/ref/heads/<name> → 404 when ABSENT (plural git/refs/... returns [] with 200).
+              return subprocess.run(
+                  ["gh", "api", f"repos/{repo}/git/ref/heads/{ref}"],
+                  capture_output=True, text=True).returncode == 0
+
+          after_idem = []
+          for p in after_allowlist:
+              ref = f"force-backport/{p['sha']}/{p['branch']}"
+              if pr_exists(ref):
+                  print(f"idempotent skip: PR with head {ref} already exists (state all)", file=sys.stderr)
+                  continue
+              if branch_exists(ref):
+                  print(f"::warning::orphaned branch refs/heads/{ref} exists with NO PR (failed prior run) — recovering: force-overwrite + open PR", file=sys.stderr)
+              after_idem.append(p)
+
+          print("pairs=" + json.dumps(after_idem, separators=(",", ":")))
+          print(f"final pairs ({len(after_idem)}): {after_idem}", file=sys.stderr)
+          PYEOF
 
   cherry-pick-and-force-stage:
     needs: [parse-and-validate]
-    # Gate on BOTH per-consumer opt-in AND idempotency check (skip if PR/branch already exists).
+    # Gate on per-consumer opt-in AND a non-empty filtered pair set. One matrix instance per (sha, branch).
+    # `pairs != '[]'` guards against an empty fromJSON() matrix (the green idempotent no-op / nothing-to-do).
     if: |
       needs.parse-and-validate.outputs.consumer_force_workspace_enabled == 'true'
-      && needs.parse-and-validate.outputs.skip != 'true'
+      && needs.parse-and-validate.outputs.pairs != '[]'
     runs-on: ubuntu-latest
+    strategy:
+      # fail-fast: false — one branch's fail-closed (RED) or clean-apply (no-PR) must NOT abort the others.
+      # Each instance pushes a DISTINCT deterministic branch force-backport/<sha>/<branch>, so the parallel
+      # matrix jobs never collide; DECISIONS_JSON via $GITHUB_ENV is per-instance (no cross-branch leakage).
+      fail-fast: false
+      matrix:
+        pair: ${{ fromJSON(needs.parse-and-validate.outputs.pairs) }}
     steps:
       # NOTE: no third-party action before the token-minting step (token-theft-surface avoidance —
       # adversarial-review finding). This job clones + force-pushes + opens a PR with the App token.
@@ -208,8 +264,8 @@ jobs:
       - name: Cherry-pick + force-stage unmerged paths (resolve toward source / "theirs")
         id: forcestage
         env:
-          SHA: ${{ needs.parse-and-validate.outputs.sha }}
-          TARGET: ${{ needs.parse-and-validate.outputs.target_branch }}
+          SHA: ${{ matrix.pair.sha }}
+          TARGET: ${{ matrix.pair.branch }}
         run: |
           set -euo pipefail
           cd repo
@@ -300,8 +356,8 @@ jobs:
       - name: Push to deterministic branch
         if: steps.forcestage.outputs.proceed == 'true'
         env:
-          SHA: ${{ needs.parse-and-validate.outputs.sha }}
-          TARGET: ${{ needs.parse-and-validate.outputs.target_branch }}
+          SHA: ${{ matrix.pair.sha }}
+          TARGET: ${{ matrix.pair.branch }}
         run: |
           cd repo
           branch_name="force-backport/${SHA}/${TARGET}"
@@ -336,11 +392,14 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
           REPO: ${{ github.repository }}
-          SHA: ${{ needs.parse-and-validate.outputs.sha }}
-          TARGET: ${{ needs.parse-and-validate.outputs.target_branch }}
+          SHA: ${{ matrix.pair.sha }}
+          TARGET: ${{ matrix.pair.branch }}
           DECISIONS_JSON: ${{ env.DECISIONS_JSON }}
           MERGIFY_COMMENT_ID: ${{ inputs.mergify_comment_id }}
           TARGET_PR_NUMBER: ${{ inputs.target_pr_number }}
+          # Pass the trigger login via env (NOT interpolated into run:) — avoids a workflow-injection
+          # surface even though a GitHub login is a constrained charset.
+          TRIGGER_LOGIN: ${{ github.event.issue.user.login }}
         run: |
           set -euo pipefail
           cd repo
@@ -378,8 +437,8 @@ jobs:
           # operator inspects. Removed the previous `2>/dev/null || echo ""` pattern.
           # --assignee is optional: only set when the triggering event provides a login (issue_comment).
           assignee_flag=()
-          if [ -n "${{ github.event.issue.user.login }}" ]; then
-            assignee_flag=(--assignee "${{ github.event.issue.user.login }}")
+          if [ -n "${TRIGGER_LOGIN:-}" ]; then
+            assignee_flag=(--assignee "$TRIGGER_LOGIN")
           fi
           pr_number=$(gh pr create \
             --repo "$REPO" \
