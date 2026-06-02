@@ -77,35 +77,41 @@ jobs:
 
           # ===== LOCKSTEP PARSER BLOCK — byte-identical across force-workspace-backport.yml + this file =====
           # Anchored to Mergify's REAL "No backport have been created" failure wording (verbatim from in-prod
-          # aborts captured 2026-06-02). Branch name is wrapped in backticks; the SHA is introduced by
-          # "Cherry-pick of <40hex> has failed:".
+          # aborts captured 2026-06-02). The failed bullet is "* Backport to branch `X` failed ..."; the SHA
+          # is introduced by "Cherry-pick of <40hex> has failed:".
           #
           # Multi-branch abort comments are Scenario A: Mergify posts ONE combined comment for a
           # "@Mergifyio backport b1 b2" command (confirmed live - vyos/vyos-documentation#2024, where BOTH
-          # branches fail with DIFFERENT per-branch SHAs). extract_pairs therefore returns a LIST of
-          # (sha, branch) pairs: it segments the body by each failed "to branch `X`" bullet and takes the
-          # single Cherry-pick SHA found within each segment.
-          #   - success bullets render "has been created for branch `X`" ("for branch", NOT "to branch") so
-          #     BRANCH_RE excludes them (partial-success comments already worked single-branch).
-          #   - merge-commit / branch-not-found failures carry no "Cherry-pick of <40hex>" anchor, so their
-          #     segment yields 0 SHAs and that branch is skipped (logged) - fail-closed per branch.
-          BRANCH_RE = r"to branch\s+`?(sagitta|circinus)`?\b"
+          # branches fail with DIFFERENT per-branch SHAs). extract_pairs returns a LIST of (sha, branch)
+          # pairs: it segments the body by each failed bullet and takes the Cherry-pick SHA in each segment.
+          #   - BRANCH_RE is LINE-ANCHORED to the literal failed bullet ("^ * Backport to branch `X` failed"),
+          #     so a conflicting filename / prose containing "to branch `sagitta`" inside the embedded
+          #     git-status output cannot forge a segment boundary and mis-pair a SHA (adversarial finding).
+          #   - success bullets render "has been created for branch `X`" (no "Backport to branch ... failed")
+          #     so they are excluded; merge-commit / branch-not-found failures carry no "Cherry-pick of <sha>"
+          #     anchor, so their segment yields 0 SHAs and that branch is skipped (logged) - fail-closed.
+          #   - SHAs are aggregated PER BRANCH; a branch with != 1 distinct SHA (0 = no anchor; >=2 = duplicate
+          #     bullets or an injected fake "Cherry-pick of <sha>") is skipped - fail-closed, never mis-staged.
+          BRANCH_RE = r"(?m)^[ \t>]*[-*]\s+Backport to branch\s+`?(sagitta|circinus)`?\s+failed\b"
           SHA_RE = r"\b(?:[Cc]herry-pick of|Backport of)\s+(?:commit\s+)?([0-9a-f]{40})\b"
 
           def extract_pairs(body):
               matches = list(re.finditer(BRANCH_RE, body, re.IGNORECASE))
-              pairs, seen = [], set()
+              by_branch, order = {}, []
               for i, m in enumerate(matches):
                   branch = m.group(1).lower()
                   seg = body[m.start() : (matches[i + 1].start() if i + 1 < len(matches) else len(body))]
-                  shas = sorted(set(re.findall(SHA_RE, seg, re.IGNORECASE)))
+                  shas = set(re.findall(SHA_RE, seg, re.IGNORECASE))
+                  if branch not in by_branch:
+                      by_branch[branch] = set()
+                      order.append(branch)
+                  by_branch[branch] |= shas
+              pairs = []
+              for branch in order:
+                  shas = sorted(by_branch[branch])
                   if len(shas) != 1:
-                      print(f"::warning::skip branch {branch}: {len(shas)} distinct cherry-pick SHAs in its segment (need exactly 1)", file=sys.stderr)
+                      print(f"::warning::skip branch {branch}: {len(shas)} distinct cherry-pick SHAs across its failed bullet(s) (need exactly 1)", file=sys.stderr)
                       continue
-                  key = (shas[0], branch)
-                  if key in seen:
-                      continue
-                  seen.add(key)
                   pairs.append({"sha": shas[0], "branch": branch})
               return pairs
           # ===== END LOCKSTEP PARSER BLOCK =====
