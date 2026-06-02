@@ -74,10 +74,19 @@ jobs:
           BODY="$(cat /tmp/mergify_comment_body.txt)" python3 - <<'PYEOF' >> "$GITHUB_OUTPUT"
           import os, re, sys
           body = os.environ["BODY"]
-          BRANCH_RE = r"\b(?:to(?: branch)?|for branch)\s+(sagitta|circinus)\b"
-          # SHA anchored to Mergify's commit context ("cherry-pick of commit <sha>" / "Backport of <sha>")
-          # so an unrelated bare 40-hex elsewhere (URL, prior-PR reference) is NOT picked up (F5/anchoring).
-          SHA_RE = r"\b(?:commit|Backport of)\s+([0-9a-f]{40})\b"
+          # Anchored to Mergify's REAL "No backport have been created" failure wording, captured verbatim
+          # from in-prod abort VyOS-Networks/vyos-1x#2116 (2026-05-15):
+          #     #### ❌ No backport have been created
+          #     * Backport to branch `circinus` failed due to conflicts
+          #     Cherry-pick of 6df7ca2f61ce1aa8352e8dbb1fc6e9c5d6d42937 has failed:
+          # Branch name is wrapped in backticks; SHA is introduced by "Cherry-pick of <40hex>".
+          # (The earlier "(?:commit|Backport of)" / bare-"to branch" anchors never matched real output —
+          #  caught at the Rollout 4 canary pre-flight; the smoke fixtures had mirrored the wrong wording.)
+          BRANCH_RE = r"to branch\s+`?(sagitta|circinus)`?\b"
+          # SHA anchored to the failed-cherry-pick sentence so an unrelated bare 40-hex elsewhere
+          # (URL, prior-PR reference) is NOT picked up (F5/anchoring). "Backport of <sha>" kept as a
+          # robustness alternate; the short 9-hex "commit 6df7ca2f6" line is correctly ignored ({40}).
+          SHA_RE = r"\b(?:[Cc]herry-pick of|Backport of)\s+(?:commit\s+)?([0-9a-f]{40})\b"
           shas = sorted(set(re.findall(SHA_RE, body, re.IGNORECASE)))
           branches = sorted({m.lower() for m in re.findall(BRANCH_RE, body, re.IGNORECASE)})
           if len(shas) != 1 or len(branches) != 1:

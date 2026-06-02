@@ -27,29 +27,53 @@ jobs:
           import re, sys
 
           # Fixtures: each is (body, expected_sha, expected_branch). expected_sha=None means the
-          # parser MUST REJECT (ambiguous or no anchored commit SHA) — negative cases.
+          # parser MUST REJECT (ambiguous, no anchored SHA, or multi-branch) — negative cases.
+          #
+          # POSITIVE fixtures use Mergify's REAL "No backport have been created" wording, captured
+          # verbatim from in-prod abort VyOS-Networks/vyos-1x#2116 (2026-05-15). The branch name is
+          # wrapped in backticks; the SHA is introduced by "Cherry-pick of <40hex> has failed:".
+          # If Mergify's failure-comment format ever drifts from this, THIS test goes red — which is
+          # the guard the prior (fictional-wording) fixtures failed to provide.
           FIXTURES = [
-            # Positive: SHA in "cherry-pick of commit <sha>" context, branch in "to/for branch".
-            ("""The backport of pull request #42 to branch sagitta failed.
+            # Positive (real circinus abort, verbatim from #2116):
+            ("""#### ❌ No backport have been created
 
-          No backport have been created for branch sagitta. The cherry-pick of commit abc123def4567890abcdef1234567890abcdef12 failed:""",
-             "abc123def4567890abcdef1234567890abcdef12", "sagitta"),
-            # Positive: "Backport of <sha> to <branch>" context.
-            ("""Backport of abcdef1234567890abcdef1234567890abcdef12 to circinus failed: deleted by us.""",
-             "abcdef1234567890abcdef1234567890abcdef12", "circinus"),
+          * Backport to branch `circinus` failed due to conflicts
+
+          Cherry-pick of 6df7ca2f61ce1aa8352e8dbb1fc6e9c5d6d42937 has failed:
+          You are currently cherry-picking commit 6df7ca2f6.""",
+             "6df7ca2f61ce1aa8352e8dbb1fc6e9c5d6d42937", "circinus"),
+            # Positive (real-wording sagitta variant):
+            ("""#### ❌ No backport have been created
+
+          * Backport to branch `sagitta` failed due to conflicts
+
+          Cherry-pick of abcdef1234567890abcdef1234567890abcdef12 has failed:""",
+             "abcdef1234567890abcdef1234567890abcdef12", "sagitta"),
             # NEGATIVE: failure branch present but the only 40-hex is an UNRELATED bare SHA in a URL
-            # (no commit/Backport-of anchor) → anchored SHA_RE finds 0 → must REJECT (not pair a stray SHA).
-            ("""No backport have been created for branch sagitta.
+            # (no Cherry-pick-of/Backport-of anchor) → anchored SHA_RE finds 0 → must REJECT.
+            ("""No backport have been created.
+          * Backport to branch `sagitta` failed due to conflicts
           See https://github.com/vyos/vyos-1x/commit/0000000000000000000000000000000000000000 for context.""",
              None, None),
-            # NEGATIVE: two distinct anchored commit SHAs → ambiguous → must REJECT.
-            ("""Backport of 1111111111111111111111111111111111111111 to circinus failed.
-          The cherry-pick of commit 2222222222222222222222222222222222222222 also failed.""",
+            # NEGATIVE: two distinct anchored SHAs → ambiguous → must REJECT.
+            ("""Cherry-pick of 1111111111111111111111111111111111111111 has failed.
+          Cherry-pick of 2222222222222222222222222222222222222222 has failed.
+          * Backport to branch `circinus` failed due to conflicts""",
+             None, None),
+            # NEGATIVE: one comment naming TWO branches (e.g. `@Mergifyio backport sagitta circinus`
+            # where both fail) → two distinct branches → fail-closed REJECT (force_workspace acts on
+            # one branch per invocation; multi-branch is left to manual fallback — documented gap).
+            ("""#### ❌ No backport have been created
+          * Backport to branch `sagitta` failed due to conflicts
+          Cherry-pick of 6df7ca2f61ce1aa8352e8dbb1fc6e9c5d6d42937 has failed:
+          * Backport to branch `circinus` failed due to conflicts""",
              None, None),
           ]
 
-          BRANCH_RE = r"\b(?:to(?: branch)?|for branch)\s+(sagitta|circinus)\b"
-          SHA_RE = r"\b(?:commit|Backport of)\s+([0-9a-f]{40})\b"
+          # Lockstep with force-workspace-backport.yml's parse step (keep byte-identical):
+          BRANCH_RE = r"to branch\s+`?(sagitta|circinus)`?\b"
+          SHA_RE = r"\b(?:[Cc]herry-pick of|Backport of)\s+(?:commit\s+)?([0-9a-f]{40})\b"
 
           # Lockstep with the reusable's parser: set-based with exactly-one-distinct assertion
           # (anchored/ambiguity-safe). Keep identical to force-workspace-backport.yml's parse step.
