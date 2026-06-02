@@ -92,6 +92,9 @@ jobs:
           #     anchor, so their segment yields 0 SHAs and that branch is skipped (logged) - fail-closed.
           #   - SHAs are aggregated PER BRANCH; a branch with != 1 distinct SHA (0 = no anchor; >=2 = duplicate
           #     bullets or an injected fake "Cherry-pick of <sha>") is skipped - fail-closed, never mis-staged.
+          #   - each segment must ALSO contain the cherry-pick context "On branch mergify/bp/<branch>/" matching
+          #     ITS bullet branch, coupling the SHA to its own context so a forged bullet cannot capture another
+          #     branch's SHA — correctness no longer depends on comment-body ordering (adversarial round-2).
           BRANCH_RE = r"(?m)^[ \t>]*[-*]\s+Backport to branch\s+`?(sagitta|circinus)`?\s+failed\b"
           SHA_RE = r"\b(?:[Cc]herry-pick of|Backport of)\s+(?:commit\s+)?([0-9a-f]{40})\b"
 
@@ -101,6 +104,9 @@ jobs:
               for i, m in enumerate(matches):
                   branch = m.group(1).lower()
                   seg = body[m.start() : (matches[i + 1].start() if i + 1 < len(matches) else len(body))]
+                  if not re.search(r"On branch mergify/bp/" + re.escape(branch) + r"/", seg):
+                      print(f"::warning::skip branch {branch}: segment lacks 'On branch mergify/bp/{branch}/' cherry-pick context", file=sys.stderr)
+                      continue
                   shas = set(re.findall(SHA_RE, seg, re.IGNORECASE))
                   if branch not in by_branch:
                       by_branch[branch] = set()
@@ -277,6 +283,9 @@ jobs:
           cd repo
           # Reachability (spec §4.2.8 step 3): refuse to force-stage a SHA that is not actually on
           # the mirrored source branch — guards against a crafted/parsed SHA that isn't a real merge.
+          # src_branch = the repo's default branch (origin/HEAD), which is the branch Mergify backports
+          # FROM; every cherry-pick SHA in the abort comment must be an ancestor of it (checked per matrix
+          # instance, so each branch's own SHA is independently verified).
           src_branch=$(git rev-parse --abbrev-ref origin/HEAD | sed 's@^origin/@@')
           if ! git merge-base --is-ancestor "$SHA" "origin/${src_branch}"; then
             echo "::error::SHA $SHA is not reachable from origin/${src_branch} (the mirrored source branch); refusing to force-stage"
