@@ -26,7 +26,7 @@ python scripts/transclude-template <file.xml>
 
 ## Repository layout
 
-- `.github/workflows/` — reusable workflows: PR labels (`add-pr-labels`, `add-rebase-label`, `label-backport`, `assign-author`, `check-stale`), PR validation (`check-pr-message`, `check-pr-conflict`, `check-pr-merge-conflict`), linting (`lint-doc`, `lint-j2`, `lint-with-ruff`, `lint-with-darker-ruff`, `check-unused-imports`, `check-typos`), security (`codeql-analysis`), CLA (`cla-check`), package rebuilds (`trigger-rebuild-repo-package`, `trigger-and-wait-rebuild-repo-package`), mirror (`pr-mirror-repo-sync`).
+- `.github/workflows/` — reusable workflows: staleness (`check-stale`), PR validation (`check-pr-conflict`, `check-pr-merge-conflict`), linting (`lint-doc`, `lint-j2`, `lint-with-ruff`, `lint-with-darker-ruff`, `check-unused-imports`, `check-typos`), security (`codeql-analysis`), CLA (`cla-check`), package rebuilds (`trigger-rebuild-repo-package`, `trigger-and-wait-rebuild-repo-package`), mirror (`pr-mirror-repo-sync`). PR labeling, author-assign, and title/commit-format checks moved to central Mergify rules in `vyos/mergify` (T8937 retirement).
 - `.github/doc-linter.py` — RST/TXT linter (RFC 5737/3849 IPs, ≤80-char lines, `.. stop_vyoslinter` toggles).
 - `.github/.typos.toml` — default `typos` config; excludes `smoketest/**`, `mibs/**`.
 - `scripts/` — helpers (Python + shell).
@@ -39,8 +39,8 @@ This repo is the canonical workflow library for both orgs. Consumers reference w
 
 ## Conventions
 
-- Commit / PR title format: `component: T12345: description`. Phorge task ID at https://vyos.dev mandatory. Enforced by `check-pr-message.yml` on the PR title and every commit.
-- This repo's own default branch is `production` (renamed from `current` in rollout 1c). Release-train branch model (in consumer repos, mapped by `add-pr-labels.yml`): `rolling` (renamed from `current`), `circinus` (1.5 LTS), `sagitta` (1.4 LTS), `equuleus` (1.3 LTS).
+- Commit / PR title format: `component: T12345: description`. Phorge task ID at https://vyos.dev mandatory. Enforced by Mergify merge protections (per-product-repo `invalid-task-id` rule + central `invalid-title`/`invalid-body`, T8966).
+- This repo's own default branch is `production` (renamed from `current` in rollout 1c). Release-train branch model (in consumer repos, labeled by central Mergify base-branch rules): `rolling` (renamed from `current`), `circinus` (1.5 LTS), `sagitta` (1.4 LTS), `equuleus` (1.3 LTS).
 - Backports: `@Mergifyio backport <branch>` (built-in Mergify command). The mirror pipeline injects these from `bp/<branch>` source labels.
 - Workflows here must be reusable (`workflow_call`); avoid adding non-reusable workflows unless necessary (the only current exception is `cla-check.yml`, which uses `pull_request_target`).
 - Most jobs include a `bullfrogsec/bullfrog@v0.8.4` egress-audit step (non-fatal).
