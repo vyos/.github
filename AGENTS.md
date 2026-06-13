@@ -26,7 +26,7 @@ python scripts/transclude-template <file.xml>
 
 ## Repository layout
 
-- `.github/workflows/` — reusable workflows: staleness (`check-stale`), PR validation (`check-pr-conflict`, `check-pr-merge-conflict`), linting (`lint-doc`, `lint-j2`, `lint-with-ruff`, `lint-with-darker-ruff`, `check-unused-imports`, `check-typos`), security (`codeql-analysis`), CLA (`cla-check`), package rebuilds (`trigger-rebuild-repo-package`, `trigger-and-wait-rebuild-repo-package`), mirror (`pr-mirror-repo-sync`). PR labeling, author-assign, and title/commit-format checks moved to central Mergify rules in `vyos/mergify` (T8937 retirement).
+- `.github/workflows/` — reusable workflows: staleness (`check-stale`), PR validation (`check-pr-merge-conflict`), linting (`lint-doc`, `lint-j2`, `lint-with-ruff`, `lint-with-darker-ruff`, `check-unused-imports`, `check-typos`), security (`codeql-analysis`), CLA (`cla-check`), package rebuilds (`trigger-rebuild-repo-package`, `trigger-and-wait-rebuild-repo-package`), mirror (`pr-mirror-repo-sync`). PR labeling, author-assign, title/commit-format, and base-branch conflict labeling moved to central Mergify rules in `vyos/mergify` (T8937 retirement). `check-pr-merge-conflict` is preserved — it covers the committed-conflict-marker case (T8934) that Mergify's `conflict` predicate cannot.
 - `.github/doc-linter.py` — RST/TXT linter (RFC 5737/3849 IPs, ≤80-char lines, `.. stop_vyoslinter` toggles).
 - `.github/.typos.toml` — default `typos` config; excludes `smoketest/**`, `mibs/**`.
 - `scripts/` — helpers (Python + shell).
