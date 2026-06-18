@@ -36,8 +36,8 @@ jobs:
               per_page: 100,
             });
             const changedFiles = files
-              .map(file => file.filename)
-              .filter(file => file.startsWith(checkFilePath));
+              .filter(file => file.status !== 'removed' && file.filename.startsWith(checkFilePath))
+              .map(file => file.filename);
             console.log("Changed files:", changedFiles);
             core.exportVariable('CHANGED_PY_FILES', changedFiles.join(' '));
 
