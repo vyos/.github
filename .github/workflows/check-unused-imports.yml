@@ -22,26 +22,24 @@ jobs:
           repository: ${{ github.event.pull_request.base.repo.full_name }}
 
       - name: Get changed files
-        id: changed-files
         uses: actions/github-script@v9
+        env:
+          CHECK_FILE_PATH: ${{ inputs.check_file_path }}
         with:
           script: |
             const prNumber = context.payload.pull_request.number;
-            const { data: files } = await github.pulls.listFiles({
+            const checkFilePath = process.env.CHECK_FILE_PATH;
+            const files = await github.paginate(github.rest.pulls.listFiles, {
               owner: context.repo.owner,
               repo: context.repo.repo,
               pull_number: prNumber,
+              per_page: 100,
             });
-            const checkFilePath = '${{ inputs.check_file_path }}';
-            const changedFiles = files.map(file => file.filename).filter(file => file.startsWith(checkFilePath));
+            const changedFiles = files
+              .filter(file => file.status !== 'removed' && file.filename.startsWith(checkFilePath))
+              .map(file => file.filename);
             console.log("Changed files:", changedFiles);
-            return { result: changedFiles.join(',') };
-
-      - name: Get changed py files
-        run: |
-          echo "Changed files: ${{ steps.changed-files.outputs.result }}"
-          py_files=$(echo ${{ steps.changed-files.outputs.result }} | sed 's/{result://; s/}//' | tr ',' ' ')
-          echo "CHANGED_PY_FILES=$py_files" >> $GITHUB_ENV
+            core.exportVariable('CHANGED_PY_FILES', changedFiles.join(' '));
 
       - name: Set up Python
         if: ${{ env.CHANGED_PY_FILES != '' }}
