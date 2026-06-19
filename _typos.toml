@@ -1,0 +1,141 @@
+# Central VyOS typos allowlist — consumed by .github/workflows/typos.yml
+# via `config: .github-central/_typos.toml` (checked out from vyos/.github@production).
+#
+# SEED config (Phase 1.3). Phase 2 evaluate step will tune further.
+#
+# Policy: allowlist only CONFIRMED genuine VyOS/networking/kernel jargon and
+# code identifiers. Real typos in source or comments are NOT allowlisted — they
+# should be fixed in the product repos.
+#
+# Sections
+# --------
+# [default.extend-words]     — token appears as a COMPONENT within an identifier
+#                              (typos splits on underscores, hyphens, and case
+#                              boundaries; use this section for sub-token jargon).
+# [default.extend-identifiers] — token IS the whole identifier on its own.
+# [files] extend-exclude      — paths to skip (gitignore-style globs, relative to
+#                              the repo root where typos is invoked in CI).
+
+[files]
+# Upstream patch files: their content is unmodifiable (cherry-picked from upstream).
+# Linux kernel defconfig/config fragments: contain many short CONFIG_ identifiers
+# that typos misreads as common-word typos (DAMON/DAEMON, WIL/WILL, ALS/ALSO, etc.).
+# Smoketest configs: large auto-generated firewall rule blobs (cert PEM data, country
+# code lists, GeoIP regex) that produce hundreds of false positives.
+# MIBs: vendor-supplied SNMP MIB files with proprietary identifiers.
+extend-exclude = [
+    "*.patch",
+    "smoketest/**",
+    "mibs/**",
+    "scripts/package-build/linux-kernel/config/**",
+]
+
+[default.extend-words]
+# ICMPv6 Neighbor Discovery (RFC 4861) — "nd" is the canonical prefix for ND
+# message types: nd-router-solicit, nd-router-advert, nd-neighbor-solicit,
+# nd-neighbor-advert, nd-redirect. Used in VyOS interface-definitions, nftables
+# templates, and interface-definition XML files.
+nd = "nd"
+ND = "ND"
+
+# WiFi 802.11ax / hostapd: FILS = Fast Initial Link Setup (IEEE 802.11ai).
+# A WPA3 authentication mechanism. Appears in wpa_supplicant.conf.j2 and
+# hostapd.conf.j2 templates.
+FILS = "FILS"
+fils = "fils"
+
+# WiFi 802.11ax EDCA ACI field (Access Category Index).
+# Appears as he_mu_edca_ac_bk_aci, he_mu_edca_ac_be_aci, etc. in hostapd.conf.j2.
+aci = "aci"
+
+# MACsec / 802.1AE "pn" = Packet Number (sequence counter).
+# Used in `ip macsec add … tx sa 0 pn 1 on key …` commands and in hostapd.
+pn = "pn"
+Pn = "Pn"
+
+# ISO 3166-1 alpha-2 country codes used in GeoIP constraint <regex> and <list>
+# elements in interface-definition XML files. "ba" = Bosnia and Herzegovina;
+# "fo" = Faroe Islands. The GeoIP lists contain every valid two-letter code
+# and are auto-generated — fixing them individually is impractical.
+ba = "ba"
+fo = "fo"
+
+# vyos-commitd: the VyOS commit daemon. The "commitd" suffix follows the Linux
+# daemon-naming convention (sshd, named, …). Appears in systemctl unit files,
+# test helpers, and the daemon source itself.
+commitd = "commitd"
+
+# _OFR_CONFIGURE: VyOS bash env variable set in vyatta-op bash completion
+# to detect configure mode. OFR is a component of this identifier split by _.
+OFR = "OFR"
+
+# RT_FlAGS / NTF_FlAGS: Linux UAPI kernel headers (rtnetlink.h, neighbour.h)
+# vendored into vyos-1x. The mixed-case "FlAGS" is upstream kernel source;
+# typos splits it into "Fl" + "AGS" — "AGS" is the flagged component.
+AGS = "AGS"
+
+# Triple DES EDE (Encrypt-Decrypt-Encrypt) — standard crypto mode name used
+# in IPsec cipher suites (DES-EDE3-CBC, des-ede3-cbc) and OpenVPN config.
+EDE = "EDE"
+ede = "ede"
+
+# TCP/SCTP Retransmission Timeout (RTO). Used as RTAX_RTO_MIN netlink
+# attribute name in network-event-logger and as an rto_min route attribute.
+RTO = "RTO"
+rto = "rto"
+Rto = "Rto"
+
+# nftables chain-name prefix used in VyOS bridge firewall templates (nftables-bridge.j2).
+# "NAM_" is an internal VyOS shortcode for named-ruleset chains (cf. "NAME_" chain type).
+NAM = "NAM"
+
+# Linux kernel Data Access MONitor (CONFIG_DAMON). Appears in linux-kernel
+# defconfig fragments. Belt-and-braces allowlist for files outside the excluded path.
+DAMON = "DAMON"
+
+# Qualcomm 60 GHz WiFi driver (CONFIG_WIL6210). Same rationale as DAMON.
+WIL = "WIL"
+
+# CONFIG_EXPORTFS: Linux kernel export-filesystem support (NFSd kernel module).
+EXPORTFS = "EXPORTFS"
+
+# Synopsys Inc.: semiconductor IP vendor (DWC USB, DesignWare Ethernet, etc.).
+# Appears as CONFIG_SYNOPSYS_* in kernel defconfigs.
+SYNOPSYS = "SYNOPSYS"
+
+# CONFIG_ADIN_PHY: Analog Devices ADIN1300/ADIN1200 Ethernet PHY driver.
+ADIN = "ADIN"
+
+# QoS token bucket / WRED threshold parameters: max_thr (maximum threshold)
+# and min_thr (minimum threshold). Standard abbreviations in tc(8) / iproute2.
+thr = "thr"
+
+# hostapd / IEEE 802.11ai Optimized Connectivity Experience (OCE).
+# Config parameter family: oce_sta, oce_ap, etc. in hostapd.conf.j2.
+OCE = "OCE"
+
+# inh-caps: setpriv(1) flag for inheritable Linux capabilities.
+# Used in kea-vrf-helper to set inheritable capabilities before exec.
+inh = "inh"
+
+# hostapd SME = Station Management Entity (IEEE 802.11 internal protocol layer).
+# Appears in comments in hostapd.conf.j2: "driver SME is used".
+SME = "SME"
+
+# Prefix-match completion file (src/opt/vyatta/etc/shell/level/users/allowed-op)
+# lists progressive prefixes of op-mode commands for tab completion:
+# c, cl, cle, clea, clear — "clea" is a valid entry, not a typo.
+clea = "clea"
+
+# VyOS dummy interface short prefix: VyOS names dummy interfaces "dumX" (dum0, dum1,
+# dum8000, etc.) per the sysconf/netdevice mapping "dum -> dummy".
+# See ChangeLog: "Rename dummy interfaces to dumX to avoid confusion".
+dum = "dum"
+
+# ATA/IDE hard disk device node prefix (hda, hdb, hdc, …).
+# Used in install scripts to enumerate available disk devices.
+hda = "hda"
+
+# "grat." = gratuitous (as in "gratuitous ARP" / GARP). Conventional networking
+# abbreviation used in changelogs (e.g. "Extra grat. arps are not needed for vmac").
+grat = "grat"
