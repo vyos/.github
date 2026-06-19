@@ -1,0 +1,46 @@
+---
+name: Typos
+on:
+  pull_request:
+    branches: [rolling, circinus, sagitta]
+
+permissions:
+  contents: read
+  pull-requests: write   # auto-downgraded to read on fork PRs
+
+jobs:
+  typos:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0   # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Checkout central typos config
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0   # v7.0.0
+        with:
+          repository: vyos/.github
+          ref: production
+          path: .github-central
+          persist-credentials: false
+
+      - name: Bullfrog egress-audit
+        continue-on-error: true
+        uses: bullfrogsec/bullfrog@1831f79cce8ad602eef14d2163873f27081ebfb3   # v0.8.4
+        with:
+          egress-policy: audit
+
+      - name: Run typos (full tree, central config)
+        uses: crate-ci/typos@37bb98842b0d8c4ffebdb75301a13db0267cef89     # v1.47.2
+        with:
+          config: .github-central/_typos.toml
+
+      - name: Comment on failure (same-repo PRs only)
+        if: ${{ failure() && github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9   # v5.0.0
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            ⚠️ **Typos check failed.** See the failing **Typos** check's annotations (Files changed tab) / job log for the exact strings and locations.
+            False positive (genuine VyOS jargon)? It belongs in the central allowlist — open a PR adding it to `vyos/.github` `_typos.toml`.
