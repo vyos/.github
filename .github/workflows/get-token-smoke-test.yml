@@ -29,7 +29,7 @@ jobs:
     steps:
       - name: Egress audit
         continue-on-error: true
-        uses: bullfrogsec/bullfrog@v0.8.4
+        uses: bullfrogsec/bullfrog@v0.10.0
         with:
           egress-policy: audit
       # Composite actions referenced via `./` path require the repo to be

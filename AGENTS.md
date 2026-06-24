@@ -43,7 +43,7 @@ This repo is the canonical workflow library for both orgs. Consumers reference w
 - This repo's own default branch is `production` (renamed from `current` in rollout 1c). Release-train branch model (in consumer repos, labeled by central Mergify base-branch rules): `rolling` (renamed from `current`), `circinus` (1.5 LTS), `sagitta` (1.4 LTS), `equuleus` (1.3 LTS).
 - Backports: `@Mergifyio backport <branch>` (built-in Mergify command). The mirror pipeline injects these from `bp/<branch>` source labels.
 - Workflows here must be reusable (`workflow_call`); avoid adding non-reusable workflows unless necessary (the only current exception is `cla-check.yml`, which uses `pull_request_target`).
-- Most jobs include a `bullfrogsec/bullfrog@v0.8.4` egress-audit step (non-fatal).
+- Most jobs include a `bullfrogsec/bullfrog@v0.10.0` egress-audit step (non-fatal).
 - Bot identity for cross-org mutations: `vyosbot` via org-level `PAT` and `REMOTE_OWNER` secrets.
 
 ## Notes for future contributors
