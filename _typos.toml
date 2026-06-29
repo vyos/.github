@@ -28,6 +28,16 @@ extend-exclude = [
     "smoketest/**",
     "mibs/**",
     "scripts/package-build/linux-kernel/config/**",
+    # Changelogs / release-note history: append-only records of past entries.
+    # Fixing typos there would rewrite historical release text. Skip them.
+    "ChangeLog",
+    "CHANGELOG*",
+    "debian/changelog",
+    # Generated protobuf type modules (ocaml-protoc output, e.g. vyconf_pbt.ml).
+    # Their content — incl. any baked-in identifier spelling — derives from the
+    # .proto source, not hand-editable here.
+    "*_pbt.ml",
+    "*_pbt.mli",
 ]
 
 [default.extend-words]
@@ -37,6 +47,22 @@ extend-exclude = [
 # templates, and interface-definition XML files.
 nd = "nd"
 ND = "ND"
+
+# vyconf protobuf enum `Uncommited_changes` (config-format errnum 9, wire-level):
+# defined in vyconf's data/vyconf.proto and referenced across the daemon API and
+# vyos-1x status handling. The spelling is an established identifier — renaming it
+# is a breaking change — so it is allowlisted rather than "corrected".
+Uncommited = "Uncommited"
+UNCOMMITED = "UNCOMMITED"
+
+# j2lint inline-directive rule name as written in FRR templates, e.g.
+# `{# j2lint: disable=jinja-statements-delimeter #}`. This matches j2lint's OWN
+# rule id, which upstream itself spells "delimeter" — aristanetworks/j2lint
+# JinjaStatementDelimeterRule defines `short_description = 'jinja-statements-delimeter'`.
+# It is the linter's identifier (used in a CI `make j2lint` directive), not VyOS
+# prose — rewriting it would point the directive at a non-existent rule. Allowlisted,
+# not "corrected" (do not "fix" to delimiter — that breaks the disable directive).
+delimeter = "delimeter"
 
 # WiFi 802.11ax / hostapd: FILS = Fast Initial Link Setup (IEEE 802.11ai).
 # A WPA3 authentication mechanism. Appears in wpa_supplicant.conf.j2 and
