@@ -165,3 +165,22 @@ hda = "hda"
 # "grat." = gratuitous (as in "gratuitous ARP" / GARP). Conventional networking
 # abbreviation used in changelogs (e.g. "Extra grat. arps are not needed for vmac").
 grat = "grat"
+
+# "mke" — substring of the real command name `mke2fs` (make ext2/3/4 filesystem),
+# e.g. in a udev-rules comment "calling mke2fs or mkswap on it". Not a typo of "make".
+mke = "mke"
+
+# "Mak" — a month name in the Maya Haab' calendar (op-mode `maya_date`), alongside
+# Yax / Sak' / Keh / K'ank'in. A real proper noun, not a typo of "Make"/"Mask".
+Mak = "Mak"
+
+# "Dentifier" — the token typos extracts from "IDentifier" as written in the exact
+# RFC 4122 phrase "Universally Unique IDentifier (UUID)" (a hostapd-template comment).
+# The capitalised "ID" is the RFC's own styling, not a VyOS typo of "Identifier".
+Dentifier = "Dentifier"
+
+# "Forwrd" — the literal column header in upstream VPP's `vppctl show bridge-domain
+# <id> detail` output ("BD-ID … Learning U-Forwrd UU-Flood …"). op-mode/vpp.py mirrors
+# that exact header and the VPP smoketest asserts it verbatim, so it must NOT be
+# "corrected" to "Forward" — it is VPP's own output spelling, not a VyOS typo.
+Forwrd = "Forwrd"
