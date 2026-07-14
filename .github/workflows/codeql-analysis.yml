@@ -1,4 +1,4 @@
-# This workflow helps to analyze repository code for vulnerabilities, bugs, and other errors using CodeQL. 
+# This workflow helps to analyze repository code for vulnerabilities, bugs, and other errors using CodeQL.
 # For that CodeQL Action is used: https://github.com/github/codeql-action
 # Learn more about CodeQL at https://codeql.github.com/
 
@@ -8,12 +8,16 @@ on:
   workflow_call:
     inputs:
       languages:
-        description: "Optional input to set languages for CodeQL check. Supported values are: 'cpp', 'csharp', 'go', 'java', 'javascript', 'typescript', 'python', 'ruby'. To set multiple languages, use the same syntax as you can see in the default value."
+        description: "Optional input to set languages for CodeQL check. Supported values include: 'actions', 'c-cpp', 'csharp', 'go', 'java-kotlin', 'javascript-typescript', 'python', 'ruby', 'swift' (plus their documented aliases, e.g. 'cpp', 'c', 'javascript'). To set multiple languages, use the same syntax as you can see in the default value."
         required: false
         type: string
         default: "['python']"
       codeql-cfg-path:
         description: "Optional input to set path to a CodeQL config file"
+        required: false
+        type: string
+      build-mode:
+        description: "Optional input to set the CodeQL build mode: 'none', 'autobuild', or 'manual'. When unset, the legacy behavior applies (explicit Autobuild step, or build-command when provided). 'none' and 'autobuild' are handled by codeql-action itself and reject build-command; 'manual' requires build-command."
         required: false
         type: string
       build-command:
@@ -36,6 +40,29 @@ jobs:
         language: ${{fromJson(inputs.languages)}}
 
     steps:
+    - name: Validate build inputs
+      env:
+        BUILD_MODE: ${{inputs.build-mode}}
+        BUILD_COMMAND: ${{inputs.build-command}}
+      run: |
+        case "$BUILD_MODE" in
+          ''|none|autobuild|manual) ;;
+          *)
+            echo "::error::Invalid build-mode '$BUILD_MODE' (allowed: none, autobuild, manual, or unset)"
+            exit 1
+            ;;
+        esac
+        if [ "$BUILD_MODE" = "none" ] || [ "$BUILD_MODE" = "autobuild" ]; then
+          if [ -n "$BUILD_COMMAND" ]; then
+            echo "::error::build-command cannot be combined with build-mode '$BUILD_MODE'"
+            exit 1
+          fi
+        fi
+        if [ "$BUILD_MODE" = "manual" ] && [ -z "$BUILD_COMMAND" ]; then
+          echo "::error::build-mode 'manual' requires build-command"
+          exit 1
+        fi
+
     - name: Checkout
       uses: actions/checkout@v6
 
@@ -53,21 +80,24 @@ jobs:
 
     # Initializes the CodeQL tools for scanning.
     - name: Initialize CodeQL
-      uses: github/codeql-action/init@v3
+      uses: github/codeql-action/init@v4
       with:
         languages: ${{matrix.language}}
         config-file: ${{inputs.codeql-cfg-path}}
+        build-mode: ${{inputs.build-mode}}
 
     # Autobuild attempts to build any compiled languages  (C/C++, C#, or Java).
     # If this step fails, configure a build command manually using build-command input. This command will be executed in the corresponding step.
+    # Runs only in legacy mode (no build-mode set): with build-mode 'none' or 'autobuild'
+    # codeql-action handles the build itself, and 'manual' uses the Manual build step below.
     - name: Autobuild
-      if: ${{!inputs.build-command}}
-      uses: github/codeql-action/autobuild@v3
+      if: ${{!inputs.build-command && !inputs.build-mode}}
+      uses: github/codeql-action/autobuild@v4
 
     - name: Manual build
-      if: ${{inputs.build-command}}
+      if: ${{inputs.build-command && (!inputs.build-mode || inputs.build-mode == 'manual')}}
       run: |
         ${{inputs.build-command}}
 
     - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v3
+      uses: github/codeql-action/analyze@v4
