@@ -26,13 +26,27 @@ except ImportError:
 DEFAULT_CONFLICT_LABEL = "conflicts"
 # Mergify's `backport` action applies this label when a cherry-pick conflicts
 # and the markers get committed into the destination branch (per the central
-# vyos/mergify config: defaults.actions.backport.label_conflicts). When this
-# label is present, the PR is already flagged as needing human resolution and
-# is held back from merge by Mergify's merge_protections. Adding `conflicts`
-# on top is redundant and creates a label-toggle race with Mergify's own
-# `Label conflicting pull requests` rule (which uses `toggle` keyed on the
-# git-level `conflict` attribute, false for these PRs because the markers
-# are committed content, not unmerged tree state).
+# vyos/mergify config: defaults.actions.backport.label_conflicts). Once it is
+# present the PR is already flagged for human resolution and held back from
+# merge by Mergify's merge_protections.
+#
+# Ownership rule: while this label is present, this script never writes the
+# `conflicts` label -- it neither adds nor removes it. Mergify's central
+# `Label conflicting pull requests` rule (`label: toggle: [conflicts]`, keyed
+# on the git-level `conflict` attribute, i.e. GitHub `mergeable_state ==
+# "dirty"`) is the sole writer of `conflicts` on such PRs.
+#
+# Why: the two automations have disagreed in both directions, and each
+# disagreement is an hourly label flap.
+#   - T8934: this script ADDED `conflicts` for committed markers while the
+#     branch merged cleanly, so Mergify's `conflict` attribute was false and
+#     its toggle removed the label again.
+#   - T9614: this script REMOVED `conflicts` as "redundant" while the
+#     backport branch was ALSO genuinely dirty against its base, so `conflict`
+#     was true and Mergify's toggle re-added the label ~35 s later.
+# Either write from this script races the toggle; leaving the label alone
+# cannot. Trade-off: a stale `conflicts` on a `backport-conflict` PR is only
+# cleared by Mergify's toggle, never by this script.
 BACKPORT_CONFLICT_LABEL = "backport-conflict"
 DEFAULT_MAX_RETRIES = 10
 DEFAULT_RETRY_DELAY = 5  # seconds
@@ -285,13 +299,10 @@ def process_pr(api: GitHubAPI, pr: Dict[str, Any], conflict_label: str, max_retr
     has_conflict_label = conflict_label in current_labels
 
     if BACKPORT_CONFLICT_LABEL in current_labels:
-        log_info(f"  Skipping: {BACKPORT_CONFLICT_LABEL} label is set (Mergify owns this state)")
-        if has_conflict_label:
-            try:
-                api.remove_label(pr_number, conflict_label)
-                log_info(f"  ✅ Removed redundant {conflict_label} label from PR #{pr_number}")
-            except requests.exceptions.HTTPError as e:
-                log_warning(f"  Could not remove label: {e}")
+        # Mergify is the sole writer of `conflicts` here -- see the comment on
+        # BACKPORT_CONFLICT_LABEL. Do not add or remove it.
+        log_info(f"  Skipping: {BACKPORT_CONFLICT_LABEL} label is set "
+                 f"(Mergify owns {conflict_label} on this PR; leaving labels untouched)")
         return
 
     # Check for conflict markers in the diff (for Mergify backport PRs)
